@@ -197,6 +197,14 @@ sheet, all hands-off.
   instances, cluster trees, FBox / box-sphere bounds.
 - `wp_hash.py` World Partition runtime spatial hash; `build/cityhash.py` CityHash64.
 
+## Contributors
+
+- [hiro98 (vale981)](https://github.com/vale981): author
+- [iceone88](https://github.com/iceone88): zlib-compressed IoStore blocks,
+  robust reading of the backend's output in the GUI
+
+Want to be on this list? See [contributions welcome](#contributing).
+
 ## License
 
 [MIT](LICENSE): © 2026 hiro98 (vale981) and the ACR Remixer contributors.
