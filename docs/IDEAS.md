@@ -93,13 +93,16 @@ step: one synthetic connector piece between two real pieces, lofted from
 
 ## Other open items
 
-- **Floating trees** (to fix): trees seen hovering above the ground. Not yet
-  located. Forest instances get the seam height correction
-  (`place_trees`: `seam_dz`), so suspects are the other kinds: ground grass
-  and foliage-tool instances, tree static mesh actors (moved like props,
-  without the seam correction), distant HLOD tree meshes (`HLODTrees`), or
-  trees kept over terrain that the clipping removed. Needs a screenshot with
-  the spot on the stage.
+- **Floating trees in the distance** (to fix; the near field is fine): the
+  distant forest is drawn by 58 `HLODTrees` actors in the main level
+  (simplified tree instances, about as many as the real forest). Anything
+  owned by `HLOD` is in `SKIP_OWNERS`, so they stay at their source
+  positions and heights while the terrain moves: from afar they hover or
+  sink, and they're missing around repeated pieces. Up close the engine
+  shows the real, correctly moved forest. Options: move their instances
+  like the forest (`place_trees`, relative to each actor's root; repeated
+  pieces would need copies), or park them, so the distance has no forest
+  but nothing floats (quick).
 - **Barrier tape** is hidden for now (`WPConfig.tapes = "hide"`): each tape
   hangs from one pole and ends at the next, so poles moved by different
   pieces (or parked) stretch it across the map. Proper fix: move pole chains
