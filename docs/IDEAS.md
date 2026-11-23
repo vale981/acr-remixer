@@ -8,7 +8,7 @@ SPDX-License-Identifier: MIT
 Things that were looked into but not built (yet), with what is known. Pick
 one up, or open an issue to discuss it first.
 
-## Stages from several levels
+## Mix different stages (pieces from several levels)
 
 Today every stage is built from **one** source level: its pieces are cut,
 moved, repeated and joined, and a new level is written from that level's
@@ -56,8 +56,50 @@ already does.
   hour with UE4SS): while driving Hafren South, load Hafren North as an
   instance and check whether its cells appear.
 
+## Completely synthetic stages from existing assets
+
+Instead of cutting existing stages, generate the road itself: a new
+centreline (curves, crests, junction-free), a road and terrain mesh lofted
+along it, and the stage dressed with the game's own assets, referenced by
+path rather than copied: road and terrain materials, forest and grass
+meshes, rocks, signs, spectators. Unlimited variety, any length, and no
+seams between pieces.
+
+What exists: the early prototype generated synthetic layouts
+(`stagegen/fake.py`) and connector pieces between real ones
+(`stagegen/connector.py`: Hermite curves matching heading, grade and width);
+pacenotes can be generated from any geometry (`stagegen/pacenotes.py`).
+
+What it would take:
+
+- Mesh generation: road cross-section (surface, verges, ditches) and terrain
+  with plausible UVs, normals, tangents and LODs, written as cooked static
+  meshes (`mesh_clip.py`/`hlod.py` already rewrite cooked mesh data, but
+  never create one from scratch).
+- Collision (baked data) with the right physical materials, so gravel drives
+  like gravel.
+- Scattering: forest, grass and props placed by rules (distance to the road,
+  slope, density), as HISM instances.
+- A level from scratch: World Partition cells and runtime hash for a world
+  no source level describes (today every cell starts as a copy), route
+  spline, start/finish and spectator actors.
+- Looks: hand-made stages have detail (texture blending, decals, rocks in
+  the verge) that rules only approximate; expect it to look more generic.
+
+Estimate: weeks, not days; the biggest single step is writing new cooked
+meshes and cells instead of copying and moving existing ones. A cheap first
+step: one synthetic connector piece between two real pieces, lofted from
+`connector.py`, inside an otherwise normal build.
+
 ## Other open items
 
+- **Floating trees** (to fix): trees seen hovering above the ground. Not yet
+  located. Forest instances get the seam height correction
+  (`place_trees`: `seam_dz`), so suspects are the other kinds: ground grass
+  and foliage-tool instances, tree static mesh actors (moved like props,
+  without the seam correction), distant HLOD tree meshes (`HLODTrees`), or
+  trees kept over terrain that the clipping removed. Needs a screenshot with
+  the spot on the stage.
 - **Barrier tape** is hidden for now (`WPConfig.tapes = "hide"`): each tape
   hangs from one pole and ends at the next, so poles moved by different
   pieces (or parked) stretch it across the map. Proper fix: move pole chains

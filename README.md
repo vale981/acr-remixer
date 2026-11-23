@@ -157,7 +157,7 @@ python -m stagegen.cli uninstall [--stage SG1L4500HafrenSouth]          # one or
 python -m stagegen.cli build ... --override                             # old mode: replace the original stage
 ```
 
-Ideas that were looked into but not built yet (stages from several levels,
+Ideas that were looked into but not built yet (mixing stages, synthetic stages,
 proper barrier tape, compression, ...) are collected in
 [docs/IDEAS.md](docs/IDEAS.md), with what is known about each.
 
