@@ -77,6 +77,7 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
         raise ValueError(f"unsupported compression {compression}")
     offlen = []
     blocks = []                      # (ucas_offset, compressed size, size, method)
+    compressed_chunks: set[int] = set()
     ucas_pos = 0
     uoff = 0
     with open(base_path + ".ucas", "wb") as ucas:
@@ -90,6 +91,10 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
                 elif compression == "gzip":
                     co = zlib.compressobj(wbits=16 + zlib.MAX_WBITS)
                     stored, method = co.compress(piece) + co.flush(), 1
+                if len(stored) >= len(piece):            # like UE's packer: keep incompressible blocks raw
+                    stored, method = piece, 0
+                if method:
+                    compressed_chunks.add(len(offlen) - 1)
                 blocks.append((ucas_pos, len(stored), len(piece), method))
                 ucas.write(stored)
                 ucas_pos += len(stored)
@@ -115,7 +120,7 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
     struct.pack_into("<I", hdr, 48, len(dindex))
     struct.pack_into("<I", hdr, 52, 1)                # partition count
     struct.pack_into("<Q", hdr, 56, container_id)
-    hdr[80] = 0x08                                    # Indexed
+    hdr[80] = 0x08 | (0x01 if compression else 0)     # Indexed (+ Compressed)
     struct.pack_into("<I", hdr, 84, 0)                # perfect hash seeds
     struct.pack_into("<Q", hdr, 88, 0xFFFFFFFFFFFFFFFF)
     struct.pack_into("<I", hdr, 96, 0)
@@ -131,7 +136,8 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
     if compression:
         out += {"zlib": b"Zlib", "gzip": b"Gzip"}[compression].ljust(32, b"\0")   # method names, 32 B each
     out += dindex
-    out += b"\0" * (24 * len(chunks))                 # chunk metas (hash + flags)
+    for i in range(len(chunks)):                      # chunk metas: 20 B hash (zero), flags, padding
+        out += bytes(20) + bytes([1 if i in compressed_chunks else 0]) + bytes(3)   # 1 = Compressed
     with open(base_path + ".utoc", "wb") as f:
         f.write(out)
     with open(base_path + ".pak", "wb") as f:

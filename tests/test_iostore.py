@@ -33,8 +33,25 @@ def test_roundtrip(tmp_path, compression):
     assert c.read("Game/A/small.uasset") == chunks[0].data
     assert c.read("Game/B/big.ubulk") == chunks[1].data
     if compression:
-        assert all(b.method == 1 for b in c.blocks)
+        assert all(b.method == 1 for b in c.blocks if b.usize >= 1000)
         assert os.path.getsize(base + ".ucas") < len(chunks[1].data)   # actually compressed
+        assert c.flags & 0x01                                           # container flag: Compressed
+    else:
+        assert not c.flags & 0x01
+
+
+def test_incompressible_blocks_stay_raw_and_metas_are_flagged(tmp_path):
+    base = str(tmp_path / "c")
+    noise = os.urandom(3000)
+    text = b"stage " * 2000
+    write_container(base, 1, [ChunkIn(b"\x01" * 12, noise, "Game/noise.bin"),
+                              ChunkIn(b"\x02" * 12, text, "Game/text.bin")], b"pak", compression="zlib")
+    c = Container(base + ".utoc")
+    assert c.read("Game/noise.bin") == noise and c.read("Game/text.bin") == text
+    assert [b.method for b in c.blocks] == [0, 1]                       # like UE's packer
+    d = open(base + ".utoc", "rb").read()
+    metas = d[-24 * 2:]                                                  # 20 B hash, flags, padding
+    assert [metas[20], metas[24 + 20]] == [0, 1]
 
 
 def _patch_first_block(base: str, edit):
