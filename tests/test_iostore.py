@@ -21,14 +21,14 @@ def _chunks():
             ChunkIn(b"\x03" * 12, b"", None)]
 
 
-@pytest.mark.parametrize("compression", [None, "zlib"])
+@pytest.mark.parametrize("compression", [None, "zlib", "gzip"])
 def test_roundtrip(tmp_path, compression):
     base = str(tmp_path / "c")
     chunks = _chunks()
     write_container(base, 0x1234, chunks, b"pak", compression=compression)
     c = Container(base + ".utoc")
     assert c.container_id == 0x1234
-    assert c.methods == (["None", "Zlib"] if compression else ["None"])
+    assert c.methods == (["None", compression.capitalize()] if compression else ["None"])
     assert set(c.files) == {"Game/A/small.uasset", "Game/B/big.ubulk"}
     assert c.read("Game/A/small.uasset") == chunks[0].data
     assert c.read("Game/B/big.ubulk") == chunks[1].data
@@ -47,13 +47,14 @@ def _patch_first_block(base: str, edit):
     open(p, "wb").write(bytes(d))
 
 
-def test_zlib_corrupt_block_is_reported(tmp_path):
+@pytest.mark.parametrize("compression", ["zlib", "gzip"])
+def test_corrupt_block_is_reported(tmp_path, compression):
     base = str(tmp_path / "c")
-    write_container(base, 1, _chunks(), b"pak", compression="zlib")
-    with open(base + ".ucas", "r+b") as f:                    # break the zlib stream
+    write_container(base, 1, _chunks(), b"pak", compression=compression)
+    with open(base + ".ucas", "r+b") as f:                    # break the compressed stream
         f.seek(2)
         f.write(b"\xff\xff\xff\xff")
-    with pytest.raises(RuntimeError, match="Zlib decompress failed"):
+    with pytest.raises(RuntimeError, match=f"{compression.capitalize()} decompress failed"):
         Container(base + ".utoc").read("Game/A/small.uasset")
 
 

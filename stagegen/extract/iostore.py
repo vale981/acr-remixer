@@ -177,6 +177,13 @@ class Container:
                             f"Zlib decompressed-size mismatch for block {bi} in {self.utoc} "
                             f"({len(decoded)} != {b.usize})"
                         )
+                elif m.lower() == "gzip":
+                    try:
+                        decoded = zlib.decompress(raw, wbits=16 + zlib.MAX_WBITS)
+                    except zlib.error as exc:
+                        raise RuntimeError(
+                            f"Gzip decompress failed for block {bi} in {self.utoc}: {exc}"
+                        ) from exc
                 else:
                     raise RuntimeError(f"unsupported compression {m}")
                 if len(decoded) != b.usize:

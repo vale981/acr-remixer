@@ -72,8 +72,8 @@ def _dir_index(mount: str, files: list[tuple[str, int]]) -> bytes:
 def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
                     pak_template: bytes, mount: str = "../../../", compression: str | None = None) -> None:
     """Writes base_path + .utoc/.ucas/.pak. compression: None (what the build
-    writes) or "zlib" (as some third-party mods are packed; used by the tests)."""
-    if compression not in (None, "zlib"):
+    writes), "zlib" or "gzip" (as some third-party mods are packed; used by the tests)."""
+    if compression not in (None, "zlib", "gzip"):
         raise ValueError(f"unsupported compression {compression}")
     offlen = []
     blocks = []                      # (ucas_offset, compressed size, size, method)
@@ -87,6 +87,9 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
                 stored, method = piece, 0
                 if compression == "zlib":
                     stored, method = zlib.compress(piece), 1
+                elif compression == "gzip":
+                    co = zlib.compressobj(wbits=16 + zlib.MAX_WBITS)
+                    stored, method = co.compress(piece) + co.flush(), 1
                 blocks.append((ucas_pos, len(stored), len(piece), method))
                 ucas.write(stored)
                 ucas_pos += len(stored)
@@ -126,7 +129,7 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
     for off, csize, size, method in blocks:
         out += off.to_bytes(5, "little") + csize.to_bytes(3, "little") + size.to_bytes(3, "little") + bytes([method])
     if compression:
-        out += b"Zlib".ljust(32, b"\0")              # method names, 32 bytes each (index 1)
+        out += {"zlib": b"Zlib", "gzip": b"Gzip"}[compression].ljust(32, b"\0")   # method names, 32 B each
     out += dindex
     out += b"\0" * (24 * len(chunks))                 # chunk metas (hash + flags)
     with open(base_path + ".utoc", "wb") as f:
