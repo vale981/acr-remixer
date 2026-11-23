@@ -689,6 +689,35 @@ fn backend_cmd(p: &Prefs) -> Result<(String, Vec<String>, String), String> {
     Ok((exe.display().to_string(), vec![], cwd))
 }
 
+/// Forward subprocess output one line at a time without assuming that every
+/// byte sequence is valid UTF-8. Unreal/package names and native libraries can
+/// occasionally emit non-UTF-8 bytes on Windows. `BufRead::lines()` treats
+/// that as a fatal read error; the loop then drops the pipe, and the backend
+/// can fail on its next stdout write (for example, the final progress update).
+fn forward_pipe_lines<R: std::io::Read>(reader: R, mut forward: impl FnMut(String)) {
+    let mut reader = BufReader::new(reader);
+    let mut bytes = Vec::new();
+    loop {
+        bytes.clear();
+        match reader.read_until(b'\n', &mut bytes) {
+            Ok(0) => break,
+            Ok(_) => {
+                if bytes.last() == Some(&b'\n') {
+                    bytes.pop();
+                }
+                if bytes.last() == Some(&b'\r') {
+                    bytes.pop();
+                }
+                forward(String::from_utf8_lossy(&bytes).into_owned());
+            }
+            Err(e) => {
+                forward(format!("[subprocess output read error: {e}]"));
+                break;
+            }
+        }
+    }
+}
+
 fn spawn_build(python: String, cwd: String, args: Vec<String>, out: Option<PathBuf>, tx: Sender<Msg>) {
     std::thread::spawn(move || {
         use std::os::windows::process::CommandExt;
@@ -712,13 +741,13 @@ fn spawn_build(python: String, cwd: String, args: Vec<String>, out: Option<PathB
         let err = child.stderr.take().unwrap();
         let tx2 = tx.clone();
         let t = std::thread::spawn(move || {
-            for l in BufReader::new(err).lines().map_while(Result::ok) {
-                let _ = tx2.send(Msg::Line(l));
-            }
+            forward_pipe_lines(err, |line| {
+                let _ = tx2.send(Msg::Line(line));
+            });
         });
-        for l in BufReader::new(child.stdout.take().unwrap()).lines().map_while(Result::ok) {
-            let _ = tx.send(Msg::Line(l));
-        }
+        forward_pipe_lines(child.stdout.take().unwrap(), |line| {
+            let _ = tx.send(Msg::Line(line));
+        });
         let _ = t.join();
         let ok = child.wait().map(|s| s.success()).unwrap_or(false);
         let _ = tx.send(Msg::Done { ok, out });

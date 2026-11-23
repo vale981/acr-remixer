@@ -13,6 +13,7 @@ import ctypes
 import glob
 import os
 import struct
+import zlib
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -161,11 +162,29 @@ class Container:
                 raw = f.read((b.csize + 15) & ~15)[: b.csize]
                 m = self.methods[b.method]
                 if m == "None":
-                    parts.append(raw[: b.usize])
+                    decoded = raw[: b.usize]
                 elif m.lower() == "oodle":
-                    parts.append(oodle_decompress(raw, b.usize))
+                    decoded = oodle_decompress(raw, b.usize)
+                elif m.lower() == "zlib":
+                    try:
+                        decoded = zlib.decompress(raw)
+                    except zlib.error as exc:
+                        raise RuntimeError(
+                            f"Zlib decompress failed for block {bi} in {self.utoc}: {exc}"
+                        ) from exc
+                    if len(decoded) != b.usize:
+                        raise RuntimeError(
+                            f"Zlib decompressed-size mismatch for block {bi} in {self.utoc} "
+                            f"({len(decoded)} != {b.usize})"
+                        )
                 else:
                     raise RuntimeError(f"unsupported compression {m}")
+                if len(decoded) != b.usize:
+                    raise RuntimeError(
+                        f"decompressed-size mismatch for block {bi} in {self.utoc} "
+                        f"({len(decoded)} != {b.usize})"
+                    )
+                parts.append(decoded)
         data = b"".join(parts)
         start = off - first * bs
         return data[start: start + length]
