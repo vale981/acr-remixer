@@ -10,6 +10,7 @@ are left zero (only checked for signed containers).
 from __future__ import annotations
 
 import struct
+import zlib
 from dataclasses import dataclass
 
 MAGIC = b"-==--==--==--==-"
@@ -69,10 +70,13 @@ def _dir_index(mount: str, files: list[tuple[str, int]]) -> bytes:
 
 
 def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
-                    pak_template: bytes, mount: str = "../../../") -> None:
-    """Writes base_path + .utoc/.ucas/.pak."""
+                    pak_template: bytes, mount: str = "../../../", compression: str | None = None) -> None:
+    """Writes base_path + .utoc/.ucas/.pak. compression: None (what the build
+    writes) or "zlib" (as some third-party mods are packed; used by the tests)."""
+    if compression not in (None, "zlib"):
+        raise ValueError(f"unsupported compression {compression}")
     offlen = []
-    blocks = []                      # (ucas_offset, size)
+    blocks = []                      # (ucas_offset, compressed size, size, method)
     ucas_pos = 0
     uoff = 0
     with open(base_path + ".ucas", "wb") as ucas:
@@ -80,9 +84,12 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
             offlen.append((uoff, len(c.data)))
             for p in range(0, max(len(c.data), 1), BLOCK):
                 piece = c.data[p: p + BLOCK]
-                blocks.append((ucas_pos, len(piece)))
-                ucas.write(piece)
-                ucas_pos += len(piece)
+                stored, method = piece, 0
+                if compression == "zlib":
+                    stored, method = zlib.compress(piece), 1
+                blocks.append((ucas_pos, len(stored), len(piece), method))
+                ucas.write(stored)
+                ucas_pos += len(stored)
                 # keep ucas blocks 16-byte aligned like UE does
                 pad = (-ucas_pos) % 16
                 if pad:
@@ -99,7 +106,7 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
     struct.pack_into("<I", hdr, 24, len(chunks))
     struct.pack_into("<I", hdr, 28, len(blocks))
     struct.pack_into("<I", hdr, 32, 12)
-    struct.pack_into("<I", hdr, 36, 0)                # compression method count
+    struct.pack_into("<I", hdr, 36, 1 if compression else 0)   # compression method count
     struct.pack_into("<I", hdr, 40, 32)
     struct.pack_into("<I", hdr, 44, BLOCK)
     struct.pack_into("<I", hdr, 48, len(dindex))
@@ -116,8 +123,10 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
         out += c.chunk_id
     for off, ln in offlen:
         out += off.to_bytes(5, "big") + ln.to_bytes(5, "big")
-    for off, size in blocks:
-        out += off.to_bytes(5, "little") + size.to_bytes(3, "little") + size.to_bytes(3, "little") + b"\0"
+    for off, csize, size, method in blocks:
+        out += off.to_bytes(5, "little") + csize.to_bytes(3, "little") + size.to_bytes(3, "little") + bytes([method])
+    if compression:
+        out += b"Zlib".ljust(32, b"\0")              # method names, 32 bytes each (index 1)
     out += dindex
     out += b"\0" * (24 * len(chunks))                 # chunk metas (hash + flags)
     with open(base_path + ".utoc", "wb") as f:

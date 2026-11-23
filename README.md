@@ -157,6 +157,19 @@ python -m stagegen.cli uninstall [--stage SG1L4500HafrenSouth]          # one or
 python -m stagegen.cli build ... --override                             # old mode: replace the original stage
 ```
 
+Tests:
+
+```
+pip install -r requirements-dev.txt
+python -m pytest tests                  # everything; "game" tests read your local ACR install
+python -m pytest tests -m "not game"    # synthetic only (what CI runs: no game files involved)
+cargo test --manifest-path gui/Cargo.toml
+```
+
+Tests marked `game` find the install next to this folder or via `ACR_PAKS`
+and skip themselves without one. Keep anything that reads game data behind
+that marker, so no game content ends up in CI logs.
+
 Release build (what `.github/workflows/nightly.yml` does):
 
 ```

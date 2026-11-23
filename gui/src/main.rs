@@ -1131,3 +1131,29 @@ fn main() -> eframe::Result<()> {
     // the app id stays "acr-stagegen": eframe stores the saved settings under it
     eframe::run_native("acr-stagegen", opts, Box::new(|cc| Ok(Box::new(App::new(cc)))))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::forward_pipe_lines;
+
+    fn lines(input: &[u8]) -> Vec<String> {
+        let mut out = Vec::new();
+        forward_pipe_lines(input, |l| out.push(l));
+        out
+    }
+
+    #[test]
+    fn plain_and_crlf_lines() {
+        assert_eq!(lines(b"one\ntwo\r\nthree"), ["one", "two", "three"]);
+        assert!(lines(b"").is_empty());
+    }
+
+    #[test]
+    fn invalid_utf8_does_not_stop_reading() {
+        // a Latin-1 byte (as in some package names) in the middle of the output
+        let got = lines(b"@progress 0.5 building\npath caf\xe9\n@progress 1.0 done\n");
+        assert_eq!(got.len(), 3);
+        assert!(got[1].starts_with("path caf"));
+        assert_eq!(got[2], "@progress 1.0 done");
+    }
+}

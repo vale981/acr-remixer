@@ -1,0 +1,38 @@
+# Synthetic tests only: no game files exist on the runner, and the "game"
+# tests (which read a local Assetto Corsa Rally install) are excluded.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Python tests (synthetic)
+        run: python -m pytest tests -m "not game" -q
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui
+
+      - name: GUI tests
+        run: cargo test --manifest-path gui/Cargo.toml
