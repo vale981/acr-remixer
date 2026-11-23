@@ -11,6 +11,8 @@ path = [
     "**/Cargo.lock",
     "requirements.txt",
     "README.md",
+    "CLAUDE.md",
+    "GEMINI.md",
     "FINDINGS.md",
     "REUSE.toml",
     "docs/gui-*.png",
