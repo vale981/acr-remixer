@@ -175,7 +175,7 @@ python -m stagegen.cli build ... --override                             # old mo
 ```
 
 Ideas that were looked into but not built yet (mixing stages, synthetic stages,
-proper barrier tape, compression, ...) are collected in
+proper barrier tape, compression, open visual issues, ...) are collected in
 [docs/IDEAS.md](docs/IDEAS.md), with what is known about each.
 
 Tests:

@@ -93,16 +93,29 @@ step: one synthetic connector piece between two real pieces, lofted from
 
 ## Other open items
 
-- **Floating trees in the distance** (to fix; the near field is fine): the
-  distant forest is drawn by 58 `HLODTrees` actors in the main level
-  (simplified tree instances, about as many as the real forest). Anything
-  owned by `HLOD` is in `SKIP_OWNERS`, so they stay at their source
-  positions and heights while the terrain moves: from afar they hover or
-  sink, and they're missing around repeated pieces. Up close the engine
-  shows the real, correctly moved forest. Options: move their instances
-  like the forest (`place_trees`, relative to each actor's root; repeated
-  pieces would need copies), or park them, so the distance has no forest
-  but nothing floats (quick).
+- **Distant trees around repeated pieces:** the distant HLOD trees, treelines
+  and stamped trees live in the main level, which isn't copied for repeats;
+  they follow the first use of each piece, the repeats have no distant trees
+  (nothing floats, the distance is just bare there).
+- **Seam at the start area:** the start/service area terrain (the backdrop,
+  moved as one rigid block) meets the first road tiles with a visible edge;
+  the joins between pieces are fine. The height blending only acts on the
+  road tiles, not on the backdrop.
+- **Leftover road strip near the start** (Hafren South practice loop, about
+  0.7 km): a flat strip like a road through the forest beside the stage, with
+  a jagged clipped edge and parked cars on it; probably part of another
+  stretch of the original road inside a tile of the piece.
+- **Floating terrain sliver** in the far distance (thin grey streak in the
+  sky, e.g. 1750 m into the practice loop): one of the distant terrain meshes.
+- **Grass from about 4,500 m to the finish** (practice loop: reversed copy of
+  7-11, then the finish piece) looks blotchier and whiter than elsewhere:
+  compare with the same stretch of the original stage before treating it as
+  a fault.
+- **acr_autotest's automatic menu path** stalls at the title screen now and
+  then ("title screen does not react"), and doesn't check which stage Free
+  Practice loaded: a wrong stage gave a tour of empty space. Ideas: retry
+  with a timeout and a keyboard fallback, wait for the loading screen to end,
+  have the StageTest mod report the loaded level and abort on a mismatch.
 - **Barrier tape** is hidden for now (`WPConfig.tapes = "hide"`): each tape
   hangs from one pole and ends at the next, so poles moved by different
   pieces (or parked) stretch it across the map. Proper fix: move pole chains
