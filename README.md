@@ -139,8 +139,9 @@ A camera tour through a generated stage, from the start (top left) to the finish
 - **Online / leaderboards:** play generated stages offline and don't submit
   times from them; the optional firewall block helps with that.
 - **Game updates** may break it until ACR Remixer is updated.
-- Known rough edges: the service park can look odd, small seams at the joins,
-  and a few distant hills may look out of place.
+- Known rough edges: small seams at the joins, a visible edge where the start
+  area meets the first piece, and a plain horizon: the distant hills of the
+  original map are left out, because they'd float above the new ground.
 - **Barrier tape** along the road is left out for now: its poles end up in
   different pieces and the tape would stretch across the map.
 - **The same piece several times close together** (e.g. a practice sequence):

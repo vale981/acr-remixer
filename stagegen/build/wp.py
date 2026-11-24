@@ -97,7 +97,11 @@ class WPConfig:
     debug_dup_same_pkg: bool = False  # test builds: duplicates stream the source cell package (no copy)
     debug_dup_new_guid: bool = True  # test builds: duplicates get their own cell GUID
     giant_mesh_m: float = 400.0  # m: meshes wider than this are scenery, never moved as props
-    bg_clear: float = 2000.0  # m: background (satellite map) mesh hidden this close to the new route
+    # m: background (satellite map) mesh hidden this close to the new route. Hidden
+    # entirely by default: it stays at the original heights, so beyond any radius its
+    # hills float above or sink into the new ground (a plain horizon looks better)
+    bg_clear: float = float("inf")
+    service_park_radius: float = 150.0  # m around ServiceParkTargetPoint: collision kept unchanged
     # foliage, each "move" (follows the piece owning its spot) or "hide" (left out, faster)
     forest: str = "move"  # PCG forest trees (PCGPartitionActor HISMs)
     grass: str = "move"  # PCG grass, branches, rocks (PCGGrassContainer)
@@ -1281,7 +1285,8 @@ def build_wp_stage(
                 n_bg += 1
                 rep.checks.append(
                     f"background {p.rsplit('/', 1)[-1]} ({len(places)} placed): "
-                    f"{st['dropped']}/{st['tris']} triangles within {cfg.bg_clear:.0f} m hidden"
+                    f"{st['dropped']}/{st['tris']} triangles hidden"
+                    + (f" (within {cfg.bg_clear:.0f} m)" if cfg.bg_clear != float("inf") else "")
                 )
         if not n_bg:
             rep.checks.append("background: nothing near the new route")
@@ -1473,6 +1478,19 @@ def build_wp_stage(
     # ---- baked collision
     progress(0.8, "building collision")
     out_meshes: list[W.MeshOut] = []
+    # the service park (its own spot in the level, usually far from the route)
+    # stays where it is with everything in it, so its collision must stay too:
+    # without it the car shown there falls through the ground and the camera
+    # looks at the park from below
+    sp_xy = next(
+        (
+            c.loc[:2] / 100
+            for c in decode_components(pkgs[ws.main], rules)
+            if c.root and c.loc is not None and pkgs[ws.main].exports[c.owner].name.startswith("ServiceParkTargetPoint")
+        ),
+        None,
+    )
+    n_sp = 0
     for m in meshes:
         if b"OriginQuad" in m.soft_sub:
             out_meshes.append(m)
@@ -1480,6 +1498,15 @@ def build_wp_stage(
         if len(m.indices) < 3:
             continue
         U = m.vertices[:, [0, 2, 1]]
+        if (
+            sp_xy is not None
+            and not re.search(rb"Track\d{4}|Terrain\d{4}", m.soft_sub)
+            and np.min(np.linalg.norm(U[:, :2] - sp_xy, axis=1)) < cfg.service_park_radius
+        ):
+            out_meshes.append(m)  # unchanged, at the original place
+            n_sp += 1
+            rep.baked_tris += len(m.indices) // 3
+            continue
         tri = m.indices.reshape(-1, 3)
         cen = U[tri].mean(1)
         mt = re.search(rb"Track(\d\d)(\d\d)", m.soft_sub)
@@ -1561,6 +1588,11 @@ def build_wp_stage(
                 )
                 rep.baked_tris += len(sel)
     rep.baked_meshes = len(out_meshes)
+    rep.checks.append(
+        f"service park: {n_sp} collision meshes kept in place"
+        if sp_xy is not None
+        else "service park: no ServiceParkTargetPoint in the level"
+    )
     # drivability: collision under the route must sit just below the route line
     # (catches lowered/missing ground, e.g. a start area on reshaped terrain)
     gv = np.vstack([mo.vertices[:, [0, 2, 1]] for mo in out_meshes if len(mo.vertices)])
