@@ -105,8 +105,6 @@ step: one synthetic connector piece between two real pieces, lofted from
   0.7 km): a flat strip like a road through the forest beside the stage, with
   a jagged clipped edge and parked cars on it; probably part of another
   stretch of the original road inside a tile of the piece.
-- **Floating terrain sliver** in the far distance (thin grey streak in the
-  sky, e.g. 1750 m into the practice loop): one of the distant terrain meshes.
 - **Grass from about 4,500 m to the finish** (practice loop: reversed copy of
   7-11, then the finish piece) looks blotchier and whiter than elsewhere:
   compare with the same stretch of the original stage before treating it as
