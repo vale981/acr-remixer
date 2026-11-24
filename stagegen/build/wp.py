@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.spatial import cKDTree
 
-from ..extract.iostore import Container, GameFS
+from ..extract.iostore import Container, GameFS, base_game_fs
 from ..extract.real import WPSource
 from ..extract.splines import level_splines, read_spline_points
 from ..extract.zen import Package
@@ -437,7 +437,7 @@ def build_wp_stage(
 ) -> WPReport:
     cfg = cfg or WPConfig()
     rep = WPReport()
-    fs = GameFS(paks_dir, include_mods=False)
+    fs = base_game_fs(paks_dir)
     src = ws.stage
     source_station = src.station
     L_src = float(source_station[-1])
@@ -522,6 +522,7 @@ def build_wp_stage(
         piece_new.append(to_new(j, src.points[i0 : i1 + 1])[:, :2])
     tree_new_all = cKDTree(np.vstack(piece_new))
     tree_new = [cKDTree(p) for p in piece_new]
+    piece_box = [(p.min(0), p.max(0)) for p in piece_new]  # XY bounding box of each piece's road
 
     def owns(j, src_pts_m, margin: float = 2.0):
         q = np.atleast_2d(src_pts_m)
@@ -670,11 +671,19 @@ def build_wp_stage(
         dz = np.zeros(len(P))
         if cfg.seam_width <= 0:
             return dz
-        d_j, _ = tree_new[j].query(P[:, :2])
+        d_j, _ = tree_new[j].query(P[:, :2], workers=-1)
+        # w > 0 needs d_b < d_j + 2 seam_width: pieces whose road is farther from
+        # every point contribute nothing (skipped), and queries stop at that bound
+        # (an infinite distance gives w = 0, as the exact one would)
+        reach = float(d_j.max()) + 2.0 * cfg.seam_width
+        lo_p, hi_p = P[:, :2].min(0), P[:, :2].max(0)
         for b in range(len(pieces)):
             if b == j:
                 continue
-            d_b, _ = tree_new[b].query(P[:, :2])
+            lo_b, hi_b = piece_box[b]
+            if np.any(lo_b - reach > hi_p) or np.any(hi_b + reach < lo_p):
+                continue
+            d_b, _ = tree_new[b].query(P[:, :2], distance_upper_bound=reach, workers=-1)
             w = np.clip(1.0 - (d_b - d_j) / 2.0 / cfg.seam_width, 0.0, 1.0)
             near = w > 0
             if not near.any():
@@ -1825,6 +1834,7 @@ def _road_steps(out_meshes, new_cl, lats=(-2.0, 0.0, 2.0), max_jump=0.4, step=1.
     t /= np.maximum(np.linalg.norm(t, axis=1, keepdims=True), 1e-9)
     n = np.c_[-t[:, 1], t[:, 0]]
     route_tree = cKDTree(P[:, :2])
+    lat_max = max(abs(x) for x in lats)
     tris = []
     for mo in out_meshes:
         # road and terrain only (track tiles, backdrop/filler): props such as
@@ -1832,45 +1842,62 @@ def _road_steps(out_meshes, new_cl, lats=(-2.0, 0.0, 2.0), max_jump=0.4, step=1.
         if len(mo.indices) < 3 or not re.search(rb"Track\d{4}|Terrain\d{4}", mo.soft_sub):
             continue
         V = np.asarray(mo.vertices, np.float64)[:, [0, 2, 1]]
+        # skip meshes nowhere near the road before expanding them into triangles
+        lo, hi = V[:, :2].min(0), V[:, :2].max(0)
+        if not route_tree.query_ball_point((lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 + lat_max + 1.0):
+            continue
         T = V[np.asarray(mo.indices).reshape(-1, 3)]
         c = T[:, :, :2].mean(1)
         r = np.linalg.norm(T[:, :, :2] - c[:, None, :], axis=2).max(1)
-        d, _ = route_tree.query(c)
-        tris.append(T[d <= max(abs(x) for x in lats) + 1.0 + r])
+        d, _ = route_tree.query(c, workers=-1)
+        tris.append(T[d <= lat_max + 1.0 + r])
     if not tris:
         return []
     T = np.vstack(tris)
+    del tris
     C = T[:, :, :2].mean(1)
-    R = float(np.linalg.norm(T[:, :, :2] - C[:, None, :], axis=2).max())
-    ctree = cKDTree(C)
+    rad = np.linalg.norm(T[:, :, :2] - C[:, None, :], axis=2).max(1)
     a, b, c3 = T[:, 0], T[:, 1], T[:, 2]
     v0, v1 = c3[:, :2] - a[:, :2], b[:, :2] - a[:, :2]
     den = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]
+    # triangles in size classes, each searched with its own radius (one radius
+    # from the largest, 50 m background triangles gave thousands of candidates
+    # per sample for the 1-2 m road triangles)
+    classes = []
+    for lo_r, hi_r in ((0.0, 2.0), (2.0, 8.0), (8.0, 32.0), (32.0, np.inf)):
+        sel = np.flatnonzero((rad > lo_r) & (rad <= hi_r)) if lo_r else np.flatnonzero(rad <= hi_r)
+        if len(sel):
+            classes.append((cKDTree(C[sel]), sel, float(rad[sel].max())))
     found = {}
     for lat in lats:
         Q = P[:, :2] + n * lat
-        prev = None
-        for i, cand in enumerate(ctree.query_ball_point(Q, R)):
-            cand = np.asarray(cand, int)
-            z = None
-            if len(cand):
-                ok = den[cand] != 0
-                cand = cand[ok]
-                v2 = Q[i] - a[cand, :2]
-                u = (v2[:, 0] * v1[cand, 1] - v1[cand, 0] * v2[:, 1]) / den[cand]
-                v = (v0[cand, 0] * v2[:, 1] - v2[:, 0] * v0[cand, 1]) / den[cand]
-                inside = (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6)
-                if inside.any():
-                    ci = cand[inside]
-                    zz = a[ci, 2] + u[inside] * (c3[ci, 2] - a[ci, 2]) + v[inside] * (b[ci, 2] - a[ci, 2])
-                    zz = zz[zz <= P[i, 2] + 1.5]
-                    if len(zz):
-                        z = float(zz.max())
-            if z is not None and prev is not None and abs(z - prev) > max_jump:
-                key = round(s[i] / 5)
-                if key not in found:
-                    found[key] = (float(s[i]), lat, z - prev)
-            prev = z
+        # highest ground at most 1.5 m above the route at each sample, all
+        # (sample, candidate triangle) pairs at once, in chunks to bound memory
+        zmax = np.full(len(Q), -np.inf)
+        for (ctree, sel, R), q0 in ((cl, q0) for cl in classes for q0 in range(0, len(Q), 2000)):
+            cands = ctree.query_ball_point(Q[q0 : q0 + 2000], R, workers=-1)
+            lens = np.fromiter((len(cc) for cc in cands), int, len(cands))
+            if not lens.sum():
+                continue
+            qi = np.repeat(np.arange(q0, q0 + len(cands)), lens)
+            ci = sel[np.fromiter((x for cc in cands for x in cc), int, int(lens.sum()))]
+            ok = den[ci] != 0
+            qi, ci = qi[ok], ci[ok]
+            v2 = Q[qi] - a[ci, :2]
+            u = (v2[:, 0] * v1[ci, 1] - v1[ci, 0] * v2[:, 1]) / den[ci]
+            v = (v0[ci, 0] * v2[:, 1] - v2[:, 0] * v0[ci, 1]) / den[ci]
+            inside = (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6)
+            qi, ci, u, v = qi[inside], ci[inside], u[inside], v[inside]
+            zz = a[ci, 2] + u * (c3[ci, 2] - a[ci, 2]) + v * (b[ci, 2] - a[ci, 2])
+            low = zz <= P[qi, 2] + 1.5
+            np.maximum.at(zmax, qi[low], zz[low])
+        z = np.where(np.isfinite(zmax), zmax, np.nan)
+        # a jump between two neighbouring samples that both have ground
+        jump = np.abs(np.diff(z)) > max_jump
+        for i in np.flatnonzero(jump) + 1:
+            key = round(s[i] / 5)
+            if key not in found:
+                found[key] = (float(s[i]), lat, float(z[i] - z[i - 1]))
     return sorted(found.values())
 
 

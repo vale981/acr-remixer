@@ -146,6 +146,38 @@ def _append_unique(out: list[np.ndarray], point: np.ndarray, eps: float = 1e-9):
         out.append(np.asarray(point, dtype=np.float64).copy())
 
 
+def _bezier_samples(control: np.ndarray, step_cm: float, tolerance_cm: float, max_depth: int) -> np.ndarray:
+    """Points of a cubic Bezier at t = i/2^k, i = 1..2^k (the start excluded),
+    with the smallest k for which every piece is at most step_cm long and stays
+    within tolerance_cm of its chord: the same bounds as the recursive
+    subdivision, evaluated in one vectorized pass."""
+    b0, b1, b2, b3 = control
+    polygon = float(np.linalg.norm(b1 - b0) + np.linalg.norm(b2 - b1) + np.linalg.norm(b3 - b2))
+    flat = max(_point_segment_distance(b1, b0, b3), _point_segment_distance(b2, b0, b3))
+    # halving roughly halves the control polygon and quarters the flatness
+    k = 0
+    if polygon > step_cm:
+        k = int(np.ceil(np.log2(polygon / step_cm)))
+    if tolerance_cm > 0 and flat > tolerance_cm:
+        k = max(k, int(np.ceil(np.log2(flat / tolerance_cm) / 2)))
+    while True:
+        if k > max_depth:
+            raise ValueError("spline adaptive sampling reached max depth; curve is too sharp or malformed")
+        t = np.linspace(0.0, 1.0, 2**k + 1)[:, None]
+        u = 1.0 - t
+        pts = u**3 * b0 + 3 * u**2 * t * b1 + 3 * u * t**2 * b2 + t**3 * b3
+        # check the pieces: chord length and deviation of their midpoints
+        tm = (t[:-1] + t[1:]) / 2
+        um = 1.0 - tm
+        mid = um**3 * b0 + 3 * um**2 * tm * b1 + 3 * um * tm**2 * b2 + tm**3 * b3
+        chord = pts[1:] - pts[:-1]
+        long_ = np.linalg.norm(chord, axis=1) > step_cm
+        dev = np.linalg.norm(mid - (pts[:-1] + pts[1:]) / 2, axis=1) > tolerance_cm
+        if not (long_.any() or dev.any()) or polygon <= 1e-9:
+            return pts[1:]
+        k += 1
+
+
 def _append_adaptive_bezier(
     control: np.ndarray,
     out: list[np.ndarray],
@@ -256,7 +288,10 @@ def sample_spline(
         m0 = leave[i] * diff
         m1 = arrive[j] * diff
         control = np.stack((p0, p0 + m0 / 3.0, p1 - m1 / 3.0, p1))
-        _append_adaptive_bezier(control, out, step_cm, tolerance_cm, 0, max_depth, max_points)
+        pts = _bezier_samples(control, step_cm, tolerance_cm, max_depth)
+        if len(out) + len(pts) > max_points:
+            raise ValueError(f"spline sampling exceeded the {max_points:,} point safety limit")
+        out.extend(pts)
 
     result = np.asarray(out, np.float64)
     if not np.all(np.isfinite(result)):

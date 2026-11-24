@@ -255,3 +255,15 @@ class GameFS:
     def read(self, path: str) -> bytes:
         c, i = self.index[path]
         return c.read_entry(i)
+
+
+@lru_cache(maxsize=4)
+def _base_game_fs(paks_dir: str) -> GameFS:
+    return GameFS(paks_dir, include_mods=False)
+
+
+def base_game_fs(paks_dir: str) -> GameFS:
+    """The base game's containers, opened once per process (they don't change
+    while the program runs; with mods, use GameFS(..., include_mods=True)
+    directly, since installing a stage changes ~mods)."""
+    return _base_game_fs(os.path.normcase(os.path.abspath(paks_dir)))
