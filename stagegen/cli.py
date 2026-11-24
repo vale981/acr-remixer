@@ -99,25 +99,37 @@ def _own_name(a) -> str:
 
     m = re.match(r"[A-Z][a-z]+(?:[A-Z][a-z]+)?S\d+(.*)$", a.level)
     short = m.group(1) if m and m.group(1) else re.sub(r"\d", "", a.level)
+    if getattr(a, "code", None):
+        return f"SGC{_code_tag(a)}{short}"
     if getattr(a, "sequence", None):
         return f"SGQ{_seq_tag(a)}{short}"
     uses = getattr(a, "max_uses", 1)
     return f"SG{a.seed}L{int(a.length)}" + (f"U{uses}" if uses > 1 else "") + short
 
 
-def _seq_tag(a) -> str:
-    """Short stable tag of a piece sequence (for names and folders): FNV-1a
-    32-bit of the normalized text, as hex (the GUI computes the same)."""
-    norm = " ".join(a.sequence.replace(",", " ").split())
+def _fnv_tag(text: str) -> str:
+    """FNV-1a 32-bit of the text, as hex (the GUI computes the same)."""
     h = 0x811C9DC5
-    for b in norm.encode():
+    for b in text.encode():
         h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
     return f"{h:08X}"
+
+
+def _seq_tag(a) -> str:
+    """Short stable tag of a piece sequence (for names and folders)."""
+    return _fnv_tag(" ".join(a.sequence.replace(",", " ").split()))
+
+
+def _code_tag(a) -> str:
+    """Short stable tag of a share code (whitespace removed)."""
+    return _fnv_tag("".join(a.code.split()))
 
 
 def _out_dir(a) -> str:
     if getattr(a, "override", False):
         return os.path.join(a.out, f"{a.level}_seed{a.seed}")
+    if getattr(a, "code", None):
+        return os.path.join(a.out, f"{a.level}_code{_code_tag(a)}")
     if getattr(a, "sequence", None):
         return os.path.join(a.out, f"{a.level}_seq{_seq_tag(a)}")
     uses = getattr(a, "max_uses", 1)
@@ -149,6 +161,21 @@ def _build_wp(a, paks: str) -> int:
         f"{len(cuts) - 2} usable tile crossings, {len(ranges)} candidate pieces"
     )
     t = time.time()
+    if getattr(a, "share", None):
+        from .sharecode import ShareCodeError, fingerprint, to_sequence
+
+        if fingerprint(st.points) != a.share.fingerprint:
+            print(
+                "warning: share code: this stage's data differs from where the code was made "
+                "(game update or different version); the result may differ"
+            )
+        try:
+            seq = to_sequence(a.share.pieces, [c.s for c in cuts])
+        except ShareCodeError as e:
+            print(f"error: share code: {e}")
+            return 1
+        a.sequence = " ".join(f"{x}-{y}{'r' if r else ''}" for x, y, r in seq)
+        print(f"share code -> pieces {a.sequence}")
     if getattr(a, "sequence", None):
         # a given piece sequence instead of the search (e.g. one hard piece many
         # times for practice): as many uses as the sequence needs
@@ -196,10 +223,23 @@ def _build_wp(a, paks: str) -> int:
         f"layout {layout.length / 1000:.2f} km in {time.time() - t:.1f}s: pieces {order}, "
         f"kinks {', '.join(f'{k:+.0f}' for k in best.kinks)} deg, {len(layout.pacenotes)} calls"
     )
+    # the share code of exactly this stage (pieces by metres on the source route)
+    from .sharecode import fingerprint, foliage_flags, from_states
+
+    share_code = from_states(
+        a.level,
+        list(reversed(list(best.chain()))),
+        cuts,
+        foliage_flags(
+            not getattr(a, "no_forest", False), not getattr(a, "no_grass", False), not getattr(a, "no_foliage", False)
+        ),
+        fingerprint(st.points),
+    )
+    print(f"share code: {share_code}")
     out = _out_dir(a)
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "layout.json"), "w") as f:
-        f.write(to_json(layout, {"seed": a.seed, "source": "game", "level": a.level}))
+        f.write(to_json(layout, {"seed": a.seed, "source": "game", "level": a.level, "share_code": share_code}))
     plot_layout(
         layout, os.path.join(out, "layout.png"), f"{a.level} seed {a.seed}: {layout.length / 1000:.2f} km ({order})", 40
     )
@@ -216,11 +256,13 @@ def _build_wp(a, paks: str) -> int:
     if not getattr(a, "override", False):
         # its own level and menu entry next to the original stage
         cfg.own_level = _own_name(a)
-        cfg.display_name = (
-            f"{_pretty(a.level)} · custom {_seq_tag(a)} · {layout.length / 1000:.1f} km"
-            if getattr(a, "sequence", None)
-            else f"{_pretty(a.level)} · seed {a.seed} · {layout.length / 1000:.1f} km"
-        )
+        if getattr(a, "code", None):
+            kind = f"shared {_code_tag(a)}"
+        elif getattr(a, "sequence", None):
+            kind = f"custom {_seq_tag(a)}"
+        else:
+            kind = f"seed {a.seed}"
+        cfg.display_name = f"{_pretty(a.level)} · {kind} · {layout.length / 1000:.1f} km"
         # how to build it again (stored with the installed stage: regenerate / load settings)
         cfg.build_params = {
             "level": a.level,
@@ -231,6 +273,7 @@ def _build_wp(a, paks: str) -> int:
             "forest": not getattr(a, "no_forest", False),
             "grass": not getattr(a, "no_grass", False),
             "foliage": not getattr(a, "no_foliage", False),
+            "code": share_code,
         }
     if getattr(a, "no_forest", False):
         cfg.forest = "hide"
@@ -296,6 +339,19 @@ def _stop_game() -> None:
 
 
 def _build(a) -> int:
+    if getattr(a, "code", None):
+        # a share code fixes the level, the pieces (snapped to cuts once the
+        # level is read, in _build_wp) and the foliage
+        from .sharecode import ShareCodeError, decode
+
+        try:
+            a.share = decode(a.code)
+        except ShareCodeError as e:
+            print(f"error: share code: {e}")
+            return 1
+        a.level = a.share.level
+        a.no_forest, a.no_grass, a.no_foliage = (not a.share.forest, not a.share.grass, not a.share.foliage_tool)
+        a.sequence = None
     rc = _build_impl(a)
     if rc == 0 and (a.install or a.launch):
         from .progress import progress
@@ -483,6 +539,12 @@ def main(argv=None):
         metavar="PIECES",
         help="build exactly these pieces instead of searching, e.g. '0-1 7-11 7-11 7-11 18-19' "
         "(cut indices from `segments`; 'r' = backwards); repeats allowed",
+    )
+    b.add_argument(
+        "--code",
+        default=None,
+        metavar="R2:...",
+        help="rebuild the stage of a share code (sets the level, pieces and foliage; every build prints its own code)",
     )
     sg = sub.add_parser("segments", help="list a level's pieces (for --sequence); --json for tools")
     sg.add_argument("--level", required=True)

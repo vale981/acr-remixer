@@ -7,7 +7,7 @@ body:
     attributes:
       label: Share code
       description: From "Share a stage" or the 📋 Share button of an installed stage.
-      placeholder: WalesS4HafrenSouth/8000/1/FGL/x2
+      placeholder: R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:8720:JG
     validations:
       required: true
   - type: textarea

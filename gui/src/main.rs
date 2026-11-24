@@ -77,6 +77,8 @@ struct Prefs {
     /// build `sequence` (pieces like "0-1 7-11 2-7r 18-19") instead of searching
     use_sequence: bool,
     sequence: String,
+    /// a share code (R2:...) to rebuild instead of searching; empty = use the form
+    code: String,
     forest: bool,
     grass: bool,
     foliage: bool,
@@ -121,6 +123,7 @@ impl Default for Prefs {
             max_uses: 1,
             use_sequence: false,
             sequence: String::new(),
+            code: String::new(),
             forest: true,
             grass: true,
             foliage: true,
@@ -163,6 +166,8 @@ fn prefs_with_params(base: &Prefs, params: &serde_json::Value) -> Prefs {
     p.forest = params["forest"].as_bool().unwrap_or(true);
     p.grass = params["grass"].as_bool().unwrap_or(true);
     p.foliage = params["foliage"].as_bool().unwrap_or(true);
+    // stages built since share codes exist rebuild from their code (exactly the same pieces)
+    p.code = params["code"].as_str().unwrap_or("").to_string();
     p
 }
 
@@ -217,17 +222,40 @@ fn norm_sequence(s: &str) -> String {
 }
 
 /// Tag of a piece sequence: FNV-1a 32-bit of the normalized text (= backend `_seq_tag`).
-fn seq_tag(s: &str) -> String {
+fn fnv_tag(text: &str) -> String {
     let mut h: u32 = 0x811C_9DC5;
-    for b in norm_sequence(s).bytes() {
+    for b in text.bytes() {
         h = (h ^ b as u32).wrapping_mul(0x0100_0193);
     }
     format!("{h:08X}")
 }
 
+fn seq_tag(s: &str) -> String {
+    fnv_tag(&norm_sequence(s))
+}
+
+/// A share code without whitespace (as the backend tags it).
+fn norm_code(code: &str) -> String {
+    code.split_whitespace().collect()
+}
+
+/// The source level named in an R2 share code.
+fn code_level(code: &str) -> Option<String> {
+    let c = norm_code(code);
+    let mut parts = c.split(':');
+    (parts.next()?.eq_ignore_ascii_case("R2")).then_some(())?;
+    parts
+        .next()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_string())
+}
+
 /// Output folder of a build (matches the backend's naming).
 fn build_dir(p: &Prefs, seed: u32) -> PathBuf {
     let base = PathBuf::from(&p.out_dir);
+    if !p.code.trim().is_empty() {
+        return base.join(format!("{}_code{}", p.stage, fnv_tag(&norm_code(&p.code))));
+    }
     if p.use_sequence && !p.sequence.trim().is_empty() {
         return base.join(format!("{}_seq{}", p.stage, seq_tag(&p.sequence)));
     }
@@ -420,6 +448,8 @@ struct Preview {
     notes: usize,
     /// its piece sequence ("0-1 7-11 2-7r 18-19"), to edit and rebuild
     sequence: String,
+    /// its share code (R2:...), empty for stages built before share codes
+    share_code: String,
 }
 
 fn load_preview(dir: &Path) -> Result<Preview, String> {
@@ -484,6 +514,7 @@ fn load_preview_file(file: &Path, name: String) -> Result<Preview, String> {
         s,
         joins,
         sequence,
+        share_code: v["share_code"].as_str().unwrap_or("").to_string(),
     })
 }
 
@@ -568,11 +599,12 @@ impl App {
     }
 
     fn start(&mut self) {
-        let n = if self.using_sequence() {
+        // a sequence or a share code is one stage
+        let n = if self.using_sequence() || !self.prefs.code.trim().is_empty() {
             1
         } else {
             self.prefs.batch.max(1)
-        }; // a sequence is one stage
+        };
         let seeds: Vec<u32> = (0..n).map(|i| self.prefs.seed + i).collect();
         self.log.clear();
         self.tab = Tab::Log;
@@ -658,7 +690,11 @@ impl App {
             "--out".into(),
             p.out_dir.clone(),
         ];
-        if p.use_sequence && !p.sequence.trim().is_empty() {
+        if !p.code.trim().is_empty() {
+            // the code fixes level, pieces and foliage (the backend ignores the rest)
+            args.push("--code".into());
+            args.push(norm_code(&p.code));
+        } else if p.use_sequence && !p.sequence.trim().is_empty() {
             args.push("--sequence".into());
             args.push(norm_sequence(&p.sequence));
         } else if p.max_uses > 1 {
@@ -1073,6 +1109,18 @@ impl eframe::App for App {
                 }
             });
             ui.separator();
+            if !self.prefs.code.trim().is_empty() {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.strong("Generate builds a share code:");
+                    ui.add(egui::Label::new(egui::RichText::new(&self.prefs.code).monospace().small()).wrap());
+                    ui.horizontal(|ui| {
+                        ui.small("The settings below are ignored while a code is loaded.");
+                        if ui.add_enabled(!busy, egui::Button::new("✕ Use the form").small()).clicked() {
+                            self.prefs.code.clear();
+                        }
+                    });
+                });
+            }
             ui.add_enabled_ui(!busy, |ui| {
                 let p = &mut self.prefs;
                 let cur = STAGES.iter().find(|s| s.0 == p.stage).map(|s| s.1).unwrap_or("?");
@@ -1229,26 +1277,42 @@ impl eframe::App for App {
             ui.separator();
             ui.separator();
             ui.strong("🔗 Share a stage");
-            ui.label("A code is all a friend needs: same code = same stage on their PC.");
-            let code = share_code(&self.prefs);
-            ui.horizontal(|ui| {
-                ui.label("This form:");
-                ui.monospace(&code);
-                if ui.small_button("📋 Copy").on_hover_text("Copy the code of the stage set up in the form").clicked() {
-                    ui.ctx().copy_text(code.clone());
-                    self.share_note = Some(format!("Copied: {code}"));
+            ui.label("A code is all a friend needs: it rebuilds exactly the stage on the map, on their PC.");
+            match self.preview.as_ref().map(|pv| pv.share_code.clone()).filter(|c| !c.is_empty()) {
+                Some(code) => {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Stage on the map:");
+                        ui.monospace(&code);
+                        if ui.small_button("📋 Copy").on_hover_text("Copy this stage's share code").clicked() {
+                            ui.ctx().copy_text(code.clone());
+                            self.share_note = Some(format!("Copied: {code}"));
+                        }
+                    });
                 }
-            });
+                None => {
+                    ui.small("Generate a stage (or pick an installed one) to get its code.");
+                }
+            }
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.code_input).hint_text("paste a code from a friend")
                     .desired_width(220.0));
-                if ui.add_enabled(!busy, egui::Button::new("Load")).on_hover_text("Fill the form from the code; \
-                    then press Generate").clicked()
+                if ui.add_enabled(!busy, egui::Button::new("Load")).on_hover_text("Use this code for the next \
+                    Generate").clicked()
                 {
-                    let input = self.code_input.clone();
-                    match apply_share_code(&mut self.prefs, &input) {
-                        Ok(()) => self.share_note = Some(format!("Loaded {} - press Generate", input.trim())),
-                        Err(e) => self.share_note = Some(format!("Not a valid code: {e}")),
+                    let input = norm_code(&self.code_input);
+                    if let Some(level) = code_level(&input) {
+                        if STAGES.iter().any(|s| s.0 == level) {
+                            self.prefs.stage = level;
+                            self.prefs.code = input;
+                            self.share_note = Some("Code loaded: press Generate to build that stage.".into());
+                        } else {
+                            self.share_note = Some(format!("This code is for a stage not in this version: {level}"));
+                        }
+                    } else if input.contains('/') && apply_share_code(&mut self.prefs, &input).is_ok() {
+                        self.share_note = Some("An old code (ACR Remixer 0.1.x): its settings are loaded, but this \
+                            version finds a different stage with them. Ask for a new code.".into());
+                    } else {
+                        self.share_note = Some("Not a share code (they start with R2:).".into());
                     }
                 }
             });
@@ -1301,11 +1365,24 @@ impl eframe::App for App {
                 self.show_installed(&i);
             }
             Some(InstAction::Share(i)) => {
-                if let Some(params) = &i.params {
-                    let code = share_code(&prefs_with_params(&self.prefs, params));
-                    ctx.copy_text(code.clone());
-                    self.log.push_str(&format!("share code copied: {code}\n"));
-                    self.share_note = Some(format!("Copied: {code}"));
+                match i
+                    .params
+                    .as_ref()
+                    .and_then(|p| p["code"].as_str())
+                    .filter(|c| !c.is_empty())
+                {
+                    Some(code) => {
+                        ctx.copy_text(code.to_string());
+                        self.log.push_str(&format!("share code copied: {code}\n"));
+                        self.share_note = Some(format!("Copied: {code}"));
+                    }
+                    None => {
+                        self.share_note = Some(
+                            "This stage was built before share codes existed: \
+                                                ⟳ Regenerate it to get one."
+                                .into(),
+                        )
+                    }
                 }
             }
             Some(InstAction::Regenerate(i)) => self.regenerate(&i),
@@ -1416,7 +1493,36 @@ fn main() -> eframe::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::forward_pipe_lines;
+    use super::{build_dir, code_level, forward_pipe_lines, norm_code, Prefs};
+
+    const CODE: &str = "R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:8720:JG";
+
+    #[test]
+    fn share_code_level_and_whitespace() {
+        assert_eq!(code_level(CODE).as_deref(), Some("WalesS4HafrenSouth"));
+        assert_eq!(
+            code_level(&format!(" {}\n{} ", &CODE[..30], &CODE[30..])).as_deref(),
+            Some("WalesS4HafrenSouth")
+        );
+        assert_eq!(
+            norm_code(&format!("{}\n {}", &CODE[..30], &CODE[30..])),
+            CODE
+        );
+        assert_eq!(code_level("WalesS4HafrenSouth/4500/1/FGL"), None);
+        assert_eq!(code_level("R2::x"), None);
+    }
+
+    #[test]
+    fn code_build_folder_matches_the_backend() {
+        // the backend (stagegen/cli.py, _fnv_tag) names this code's folder ..._code53964059
+        let p = Prefs {
+            stage: "WalesS4HafrenSouth".into(),
+            out_dir: "out".into(),
+            code: CODE.into(),
+            ..Default::default()
+        };
+        assert!(build_dir(&p, 1).ends_with("WalesS4HafrenSouth_code53964059"));
+    }
 
     fn lines(input: &[u8]) -> Vec<String> {
         let mut out = Vec::new();

@@ -23,7 +23,7 @@ body:
     attributes:
       label: Share code of the stage
       description: From "Share a stage" or the 📋 Share button of the installed stage, so we can build the same one.
-      placeholder: WalesS4HafrenSouth/6000/12/FGL
+      placeholder: R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:8720:JG
   - type: dropdown
     id: where
     attributes:

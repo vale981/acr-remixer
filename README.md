@@ -92,7 +92,7 @@ lists the installed stages, each with its own *Uninstall* button.
 |---|---|
 | **Stage** | Which official stage to take the pieces from. |
 | **Length** | The length you'd like. Each source stage only has so much road, so the program picks the closest length that's possible. |
-| **Seed** | The "recipe" number. Same stage + length + seed = the same result, so you can share good ones with friends. |
+| **Seed** | The "recipe" number: change it for another stage. To share a stage, use its share code (below), not the seed: a new version of ACR Remixer may find a different stage with the same seed. |
 | **Repeats** | How often a piece of road may appear. 1 = every piece at most once (stage length limited to about 90 % of the original); 2–3 = longer stages from repeated pieces. Each repeat costs some memory in the game. |
 | **Sequence** | Optional: the exact pieces to drive instead of letting the seed decide, e.g. `0-1 7-11 2-7r 18-19` (numbers are the tile crossings, `r` = backwards). It starts filled with the last generated stage, so you can tweak that; the list next to it shows which pieces exist. Repeats are allowed as often as you like. |
 | **Batch** | Builds several stages in a row (seed, seed+1, …), so you can compare them on the map. Each one is installed as its own stage. |
@@ -100,8 +100,25 @@ lists the installed stages, each with its own *Uninstall* button.
 | **Install / Start ACR** | Put the stage into the game automatically, and optionally start the game. |
 | **Block ACR online while a stage is installed** | Optional. Adds a Windows Firewall rule that cuts ACR off from the internet while a generated stage is installed, and removes it again when you uninstall, so no times from a generated stage can reach the online leaderboards. Windows asks for admin rights each time the rule changes. |
 
-While generated stages are installed, a bar at the top of the window lists
-them, with buttons to block ACR online or uninstall them one by one.
+While generated stages are installed, a bar at the top of the window says so,
+with buttons to block ACR online or uninstall them all; the list of installed
+stages in the window shows each one's map, and can load, share, regenerate
+or uninstall it.
+
+**Share codes.** Every stage you build gets a code, shown under *Share a
+stage* and on the 📋 Share button of each installed stage:
+
+```
+R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:8720:JG
+```
+
+It lists the pieces of the original stage (in metres along its route, `r` =
+backwards) and the foliage settings, so a friend who pastes it and presses
+*Generate* gets exactly the same stage, also with later versions of ACR
+Remixer. A check at the end catches typos, and if a game update changed the
+original stage, the build warns. Codes from version 0.1.x
+(`WalesS4HafrenSouth/4500/1/FGL`) only described the search settings; newer
+versions find a different stage with them.
 
 The **Map** tab shows the new route from above (each colour is one piece of an
 original stage), **Elevation** shows the height profile with the joins marked,
