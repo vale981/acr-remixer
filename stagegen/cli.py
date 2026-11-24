@@ -83,6 +83,11 @@ def _segments(a) -> int:
     return 0
 
 
+# rallies where repeated pieces (copied cells) are new: one long test stage hung
+# ACR on the loading screen, short ones load; see docs/IDEAS.md
+REPEAT_CAUTION_RALLIES = ("Greece", "Sweden", "MonteCarlo")
+
+
 def _pretty(level: str) -> str:
     """WalesS4HafrenSouth -> Hafren South"""
     import re
@@ -203,6 +208,15 @@ def _build_wp(a, paks: str) -> int:
         )
         print(f"no layout found: {hint}")
         return 1
+    # repeated pieces need copies of the level's cells: on these rallies a short
+    # stage with one repeat loads, a 13 km one stayed on the loading screen
+    # (cause not found yet, see docs/IDEAS.md)
+    if a.level.startswith(REPEAT_CAUTION_RALLIES) and any(getattr(s, "layer", 0) for s in best.chain()):
+        print(
+            f"warning: repeated pieces on {_pretty(a.level)} are new: in one test a long stage with repeats "
+            "on Greece did not finish loading in ACR (short ones load). If it hangs, try fewer repeats or "
+            "a shorter stage, and please report it."
+        )
     # smooth the joins (shear both sides of each kinked join) before the layout
     # is built; the pacenotes around smoothed joins are regenerated
     from .tiles import smooth_layout_points
