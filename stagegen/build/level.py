@@ -169,6 +169,10 @@ def decode_components(pk: Package, rules: dict | None = None) -> list[Comp]:
             if L + 2 in h:
                 sc = np.array(struct.unpack_from("<3d", d, p))
                 p += 24
+            # implausible candidates (garbage bytes read as numbers, NaN among
+            # them) first, so the default checks below never see NaN
+            if not _sane(loc, rot, sc):
+                continue
             # unversioned properties are only written when they differ from the default
             # (exactly: a scale of 0.99999998 is stored, e.g. on scaled tape poles)
             if (
@@ -176,8 +180,6 @@ def decode_components(pk: Package, rules: dict | None = None) -> list[Comp]:
                 or (rot is not None and not rot.any())
                 or (sc is not None and np.all(sc == 1.0))
             ):
-                continue
-            if not _sane(loc, rot, sc):
                 continue
             out.append(Comp(i, e.outer, rule, h, r.p, block_start, block_end, loc, rot, sc, tuple(zeros)))
             break
