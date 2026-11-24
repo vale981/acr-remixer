@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 iceone88
 # SPDX-License-Identifier: MIT
 
 """Instanced (foliage / PCG grass) components: hide instances in place.
@@ -74,7 +75,8 @@ def _box_offsets(b: bytes, limit: int, lo, hi, tol: float):
 
 def move_hism(b: bytes, root_cm, place) -> tuple[bytes, dict]:
     """Move/hide the instances of a (H)ISM component attached to a root at root_cm.
-    place(world_m (N,3)) -> (keep (N,), new_world_m (N,3), yaw_rad (N,)).
+    place(world_m (N,3), source_yaw_rad (N,)) ->
+    (keep (N,), new_world_m (N,3), yaw_delta_rad (N,)).
     Instances are rewritten in place, hidden ones zero-scaled at their new spot;
     the cluster tree boxes and cached FBox bounds follow the moved instances."""
     hit = find_instances(b)
@@ -84,7 +86,9 @@ def move_hism(b: bytes, root_cm, place) -> tuple[bytes, dict]:
     M = np.frombuffer(b, "<f8", 16 * n, off).reshape(n, 4, 4).copy()
     root = np.asarray(root_cm, np.float64)
     W = (M[:, 3, :3] + root) / 100
-    keep, NW, yaw = place(W)
+    # UE instance matrices store their local axes by row; row 0 is local +X.
+    source_yaw = np.arctan2(M[:, 0, 1], M[:, 0, 0])
+    keep, NW, yaw = place(W, source_yaw)
     keep = np.asarray(keep, bool)
     c, s = np.cos(yaw), np.sin(yaw)
     for r in range(3):                                   # rows are the scaled axes: A' = A R^T

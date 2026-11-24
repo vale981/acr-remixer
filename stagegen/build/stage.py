@@ -1,4 +1,5 @@
 ﻿# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 iceone88
 # SPDX-License-Identifier: MIT
 
 """Turn a generated layout into an installable mod container.
@@ -84,7 +85,7 @@ class _Pieces:
             if p.kind != "segment":
                 continue
             seg = seg_by_id[p.segment_id]
-            self.items.append((seg.i0 * seg.step, seg.i1 * seg.step, rot_z(p.yaw), np.asarray(p.translation) + offset,
+            self.items.append((seg.s0, seg.s1, rot_z(p.yaw), np.asarray(p.translation) + offset,
                                p.yaw, p))
         self.items.sort(key=lambda t: t[0])
         self.lo = np.array([t[0] for t in self.items])
@@ -124,7 +125,6 @@ def build_stage(layout: Layout, src: SourceStage, seg_by_id: dict[str, Segment],
     fs = GameFS(paks_dir, include_mods=True)
     umap_path, baked_path, table_path, lvl = _level_paths(fs, level)
     src_container, _ = fs.index[umap_path]
-    step = next(iter(seg_by_id.values())).step
 
     comps = decode_components(lvl)
     roots = [c for c in comps if c.root and c.loc is not None]
@@ -142,7 +142,8 @@ def build_stage(layout: Layout, src: SourceStage, seg_by_id: dict[str, Segment],
 
     src_xy = cKDTree(src.points[:, :2])
     src_head = headings(src.points)
-    L_src = (len(src.points) - 1) * step
+    src_station = src.station
+    L_src = float(src_station[-1])
 
     # ---- level actors
     payloads: dict[int, bytes] = {}
@@ -159,7 +160,7 @@ def build_stage(layout: Layout, src: SourceStage, seg_by_id: dict[str, Segment],
             continue
         p_m = c.loc / 100
         dist, idx = src_xy.query(p_m[:2])
-        s = idx * step
+        s = src_station[idx]
         limit = cfg.lateral_tiles if kind == "tile" else cfg.lateral_props
         k = int(pieces.index(np.array([s]), True, True)[0]) if dist <= limit else -1
         rot = c.rot if c.rot is not None else np.zeros(3)
@@ -183,7 +184,7 @@ def build_stage(layout: Layout, src: SourceStage, seg_by_id: dict[str, Segment],
 
     # ---- visuals for connectors: transplant unused terrain tiles (+ their RVT
     # writers, which paint the road texture) whose source road matches.
-    _fill_connectors(lvl, roots, payloads, layout, src, pieces, offset, new_cl, new_s, step,
+    _fill_connectors(lvl, roots, payloads, layout, src, pieces, offset, new_cl, new_s, src_station,
                      Package(fs.read(baked_path)), rep)
 
     # ---- splines
@@ -234,7 +235,7 @@ def build_stage(layout: Layout, src: SourceStage, seg_by_id: dict[str, Segment],
         tri = m.indices.reshape(-1, 3)
         cen = U[tri].mean(1)
         dist, idx = src_xy.query(cen[:, :2])
-        k = pieces.index(idx * step, True, True)
+        k = pieces.index(src_station[idx], True, True)
         k[dist > cfg.lateral_baked] = -1
         for kk in np.unique(k[k >= 0]):
             sel = tri[k == kk]
@@ -321,7 +322,7 @@ def build_stage(layout: Layout, src: SourceStage, seg_by_id: dict[str, Segment],
 TILE = 64.0   # half size of a terrain tile (m)
 
 
-def _fill_connectors(lvl, roots, payloads, layout, src, pieces, offset, new_cl, new_s, step, bpk, rep):
+def _fill_connectors(lvl, roots, payloads, layout, src, pieces, offset, new_cl, new_s, src_station, bpk, rep):
     ex = lvl.exports
     tiles: dict[str, dict] = {}
     for c in roots:
@@ -348,11 +349,21 @@ def _fill_connectors(lvl, roots, payloads, layout, src, pieces, offset, new_cl, 
     hd = headings(P)
     used_s = np.zeros(n, bool)
     for lo, hi, *_ in pieces.items:
-        used_s[int(lo / step): int(hi / step) + 1] = True
-    span = 30                                            # +-60 m straightness window
-    cand = [i for i in range(span, n - span)
-            if not used_s[max(0, i - span): i + span].any() and abs(hd[i + span] - hd[i - span]) < np.radians(15)]
-    cand.sort(key=lambda i: abs(hd[i + span] - hd[i - span]))
+        used_s |= (src_station >= lo) & (src_station <= hi)
+    half_window = 60.0
+    cand = []
+    straightness = {}
+    for i, si in enumerate(src_station):
+        if si - src_station[0] < half_window or src_station[-1] - si < half_window:
+            continue
+        i0 = int(np.searchsorted(src_station, si - half_window, side="left"))
+        i1 = int(np.searchsorted(src_station, si + half_window, side="right")) - 1
+        if not used_s[i0:i1 + 1].any():
+            turn = abs(hd[i1] - hd[i0])
+            if turn < np.radians(15):
+                cand.append(i)
+                straightness[i] = turn
+    cand.sort(key=lambda i: straightness[i])
     taken: set[str] = set()
 
     for p in layout.pieces:
@@ -369,7 +380,9 @@ def _fill_connectors(lvl, roots, payloads, layout, src, pieces, offset, new_cl, 
         for i in cand[:400]:
             Ps = P[i]
             # tiles holding the source road around i
-            road = P[max(0, i - int(half_len / step)): i + int(half_len / step) + 1, :2]
+            i0 = int(np.searchsorted(src_station, src_station[i] - half_len, side="left"))
+            i1 = int(np.searchsorted(src_station, src_station[i] + half_len, side="right"))
+            road = P[i0:i1, :2]
             sel = [k for k, cxy in zip(keys, centres)
                    if k not in taken and (np.abs(road - cxy).max(1) <= TILE).any()]
             if not sel or len(sel) > 3:

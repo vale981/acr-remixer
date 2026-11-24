@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 iceone88
 # SPDX-License-Identifier: MIT
 
 """Pacenote generation from centreline geometry.
@@ -12,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .geometry import curvature, grade, smooth
+from .geometry import arclength, curvature, grade, smooth
 from .model import Pacenote
 
 # (max radius in m, call)
@@ -29,8 +30,15 @@ def _call(radius: float) -> str:
     return "6"
 
 
-def generate(points: np.ndarray, step: float) -> list[Pacenote]:
-    k = curvature(points, step, window=9)
+def generate(points: np.ndarray, step: float | None = None) -> list[Pacenote]:
+    """Generate calls against the polyline's measured XY arclength.
+
+    ``step`` remains accepted for compatibility, but is deliberately not used
+    to reconstruct stations: resampled endpoints and exact tile cuts can have
+    fractional intervals.
+    """
+    station = arclength(points)
+    k = curvature(points, station, window=9)
     notes: list[tuple[float, float, str]] = []   # (start_s, end_s, text)
     corner = np.abs(k) > CORNER_K
     i, n = 0, len(k)
@@ -41,18 +49,17 @@ def generate(points: np.ndarray, step: float) -> list[Pacenote]:
         j = i
         while j + 1 < n and corner[j + 1] and np.sign(k[j + 1]) == np.sign(k[i]):
             j += 1
-        if (j - i) * step >= 8:   # ignore tiny wiggles
+        corner_length = float(station[j] - station[i])
+        if corner_length >= 8.0:
             kmax = np.abs(k[i : j + 1]).max()
-            # Game pacenote tokens (DT_Pacenote* vocabulary): Left3, RightHP, Long ...
-            # UE is left-handed (x forward, y right): a growing heading is a right turn.
             side = "Right" if k[i] > 0 else "Left"
             call = _call(1 / kmax)
             text = f"{side}HP" if call == "hairpin" else f"{side}{call}"
-            if (j - i) * step > 160:
+            if corner_length > 160:
                 text += " VeryLong"
-            elif (j - i) * step > 80:
+            elif corner_length > 80:
                 text += " Long"
-            notes.append((i * step, j * step, text))
+            notes.append((float(station[i]), float(station[j]), text))
         i = j + 1
 
     out: list[Pacenote] = []
@@ -62,7 +69,8 @@ def generate(points: np.ndarray, step: float) -> list[Pacenote]:
         out.append(Pacenote(max(0.0, s0 - CUE_LEAD), text, "generated"))
 
     # Crests: strongly negative vertical curvature (grade dropping fast).
-    vc = np.gradient(smooth(grade(points, step, 9), 9)) / step
+    g = smooth(grade(points, station, 9), 9)
+    vc = np.gradient(g, station) if len(g) > 1 else np.zeros_like(g)
     crest = vc < -0.0025
     i = 0
     while i < n:
@@ -71,7 +79,7 @@ def generate(points: np.ndarray, step: float) -> list[Pacenote]:
             while j + 1 < n and crest[j + 1]:
                 j += 1
             mid = (i + j) // 2
-            out.append(Pacenote(max(0.0, mid * step - CUE_LEAD), "Crest", "generated"))
+            out.append(Pacenote(max(0.0, float(station[mid]) - CUE_LEAD), "Crest", "generated"))
             i = j + 1
         else:
             i += 1

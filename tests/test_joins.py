@@ -58,16 +58,19 @@ def test_gradient_step_is_split():
     assert abs(g_in - 0.02) < 0.005 and abs(g_out - 0.02) < 0.005
 
 
-def test_yaw_matches_the_local_rotation():
+@pytest.mark.parametrize("direction_deg", [0, 35, 90, 140, 250])
+def test_yaw_matches_the_local_rotation(direction_deg):
+    """An object's heading turns as the shear turns its own direction (not only
+    directions across the line: trees and props face any way)."""
     sp, sn = join_shears([0, 0], 0.3, np.radians(80), np.radians(120), 0, 0, 100.0, 100.0)
+    h = np.radians(direction_deg)
     for sh in (sp, sn):
         for d in (5.0, 30.0, 70.0):
             p = sh.p0 + sh.n * d + sh.e * 10
-            v = sh.n * 0.01                                         # a direction across the line
+            v = np.array([np.cos(h), np.sin(h)]) * 0.01
             w = (sh.apply(np.array([p + v])) - sh.apply(np.array([p])))[0]
-            num = np.arctan2(w[1], w[0]) - np.arctan2(v[1], v[0])
-            num = (num + np.pi) % (2 * np.pi) - np.pi
-            assert abs(num - sh.yaw(p[None])[0]) < np.radians(0.5)
+            diff = np.arctan2(w[1], w[0]) - h - sh.yaw(p[None], h)[0]
+            assert abs((diff + np.pi) % (2 * np.pi) - np.pi) < np.radians(0.5)
 
 
 def test_too_sharp_is_refused():

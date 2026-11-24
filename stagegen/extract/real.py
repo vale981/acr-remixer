@@ -121,8 +121,8 @@ def _tables_for(fs: GameFS, lvl: str) -> dict[str, str]:
 
 def _turn_agreement(points: np.ndarray, notes: list[Pacenote], step: float) -> float:
     from ..geometry import curvature
-    k = curvature(points, step, window=9)
-    s = np.arange(len(points)) * step
+    s = arclength(points)
+    k = curvature(points, s, window=9)
     good = bad = 0
     for n in notes:
         side = "Left" if "Left" in n.text else "Right" if "Right" in n.text else None

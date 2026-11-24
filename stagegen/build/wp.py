@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 iceone88
 # SPDX-License-Identifier: MIT
 
 """Build a recombined base-game (World Partition) stage as a mod container.
@@ -36,6 +37,7 @@ from ..geometry import arclength, headings, resample, rot_z
 from ..layout import Layout
 from ..pacenotes import generate
 from ..tiles import Cut, TileGrid, TState
+from ..joins import seam_edge_weights, source_aligned_edge_interval
 from . import writers as W
 from .cityhash import name_hash
 from . import container_header as CH
@@ -129,15 +131,17 @@ class PieceX:
 class _Assign:
     """Source position -> piece (of one layer: within a layer every source
     stretch belongs to at most one piece)."""
-    def __init__(self, src_pts: np.ndarray, step: float, pieces: list[PieceX], ext: float):
-        self.tree = cKDTree(src_pts[:, :2])
-        self.step = step
+    def __init__(self, src_pts: np.ndarray, source_station: np.ndarray, pieces: list[PieceX], ext: float):
+        self.tree = cKDTree(src_pts[:, :2])  # XY is intentional for lateral ownership/clipping.
+        self.station = np.asarray(source_station, dtype=np.float64)
+        if self.station.shape != (len(src_pts),):
+            raise ValueError("source station array does not match source points")
         self.p = pieces
         self.ext = ext
 
     def __call__(self, xy: np.ndarray, ext: float | None = None, layer: int = 0):
         d, idx = self.tree.query(np.atleast_2d(xy)[:, :2])
-        s = idx * self.step
+        s = self.station[idx]
         k = np.full(len(s), -1)
         e = self.ext if ext is None else ext
         for j, pc in enumerate(self.p):           # exact ranges first
@@ -392,8 +396,8 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
     rep = WPReport()
     fs = GameFS(paks_dir, include_mods=False)
     src = ws.stage
-    step = float(np.median(np.linalg.norm(np.diff(src.points[:, :2], axis=0), axis=1)))
-    L_src = float(arclength(src.points)[-1])
+    source_station = src.station
+    L_src = float(source_station[-1])
     lvl = src.name
 
     # ---- placement of the new stage
@@ -413,6 +417,29 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
                      float(s.piece.yaw), s.rng.tiles, getattr(s, "layer", 0),
                      [sh.shifted(offset) for sh in js[k]]) for k, s in enumerate(states)]
 
+    # One finite shared tile edge per consecutive piece pair. The original
+    # implementation blended every piece against every other piece based only
+    # on route proximity, which can pull unrelated terrain together at loops,
+    # crossings and overpasses. These edge records identify the actual source
+    # grid boundary that the placement aligned.
+    seam_edges = []
+    for k in range(1, len(states)):
+        prev = states[k - 1]
+        cut = cuts[prev.exit]
+        if cut.kind != "cross":
+            continue
+        if abs(np.sin(cut.line)) > abs(np.cos(cut.line)):
+            coord0, grid0 = float(cut.p[1]), float(grid.y0)
+        else:
+            coord0, grid0 = float(cut.p[0]), float(grid.x0)
+        # q is measured along the transformed source-positive grid axis.  Do
+        # not flip it when e points toward negative world X/Y: the rigid map
+        # already carries that orientation.
+        q0, q1 = source_aligned_edge_interval(coord0, grid0, grid.cell)
+        p0 = np.asarray(prev.exit_p, dtype=np.float64) + offset
+        e = np.array([np.cos(prev.exit_line), np.sin(prev.exit_line)], dtype=np.float64)
+        seam_edges.append((k - 1, k, p0, e, q0, q1))
+
     def warp(j, P):
         """Join smoothing of piece j applied to world points (N,2|3), metres."""
         P = np.atleast_2d(np.asarray(P, np.float64))
@@ -420,12 +447,19 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
             P = sh.apply(P)
         return P
 
-    def warp_yaw(j, xy):
-        """Local rotation (rad) the smoothing adds at world points xy."""
-        y = np.zeros(len(np.atleast_2d(xy)))
+    def warp_yaw(j, xy, heading):
+        """Yaw delta (rad) of a specified direction through the full shear map.
+
+        Each shear is differentiated at the point produced by all previous
+        shears, so the result is the direction of the composed transform.
+        """
+        P = np.atleast_2d(np.asarray(xy, dtype=np.float64)).copy()
+        h = np.broadcast_to(np.asarray(heading, dtype=np.float64), (len(P),)).copy()
+        h0 = h.copy()
         for sh in pieces[j].shears:
-            y = y + sh.yaw(xy)
-        return y
+            h += sh.yaw(P, h)
+            P = sh.apply(P)
+        return np.arctan2(np.sin(h - h0), np.cos(h - h0))
 
     def to_new(j, P_src):
         """Source points (N,3) -> new world: piece j's rigid transform + join smoothing."""
@@ -434,13 +468,13 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
     n_layers = 1 + max(pc.layer for pc in pieces)
     if n_layers > 1 and not cfg.own_level:
         raise ValueError("repeated tiles need an own level (copies of cells); not available with --override")
-    assign = _Assign(src.points, step, pieces, cfg.range_ext)
+    assign = _Assign(src.points, source_station, pieces, cfg.range_ext)
     tile_pieces = {(pc.layer, t): j for j, pc in enumerate(pieces) for t in pc.tiles}    # (layer, tile) -> piece
     tile_piece = {t: j for (lay, t), j in tile_pieces.items() if lay == 0}
     new_cl = cl + offset
     new_s = arclength(new_cl)
-    new_head = headings(new_cl)
-    src_head = headings(src.points)
+    new_head = headings(new_cl, new_s)
+    src_head = headings(src.points, source_station)
 
     def lat_ok(s, d, base):
         """Lateral limit; widened at the route ends, where start/finish areas sit off the spline."""
@@ -452,7 +486,8 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
     # no piece reaches over another piece's road.
     piece_new = []
     for j, pc in enumerate(pieces):
-        i0, i1 = int(pc.sa / step), min(int(np.ceil(pc.sb / step)), len(src.points) - 1)
+        i0 = max(0, int(np.searchsorted(source_station, pc.sa, side="left")) - 1)
+        i1 = min(len(src.points) - 1, int(np.searchsorted(source_station, pc.sb, side="right")))
         piece_new.append(to_new(j, src.points[i0: i1 + 1])[:, :2])
     tree_new_all = cKDTree(np.vstack(piece_new))
     tree_new = [cKDTree(p) for p in piece_new]
@@ -476,13 +511,15 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
         """Rigid transform + join smoothing (props, start/finish actors)."""
         loc, r = rigid_raw(j, p_m, rot)
         if pieces[j].shears:
-            loc = warp(j, loc[None])[0]
-            r[1] = (r[1] + np.degrees(warp_yaw(j, loc[None])[0]) + 180.0) % 360.0 - 180.0
+            loc_raw = loc.copy()
+            delta_yaw = warp_yaw(j, loc_raw[None], np.radians(r[1]))[0]
+            loc = warp(j, loc_raw[None])[0]
+            r[1] = (r[1] + np.degrees(delta_yaw) + 180.0) % 360.0 - 180.0
         return loc, r
 
     def along(p_m, rot, idx):
         """Keep the relative position along the route (fraction of length), facing the same way."""
-        s_new = idx * step / L_src * new_s[-1]
+        s_new = source_station[idx] / L_src * new_s[-1]
         j = min(int(np.searchsorted(new_s, s_new)), len(new_cl) - 1)
         dh = new_head[j] - src_head[idx]
         off = (p_m[:2] - src.points[idx, :2]) @ rot_z(dh)[:2, :2].T
@@ -501,12 +538,21 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
                         if re.search(rb"Track\d{4}", m.soft_sub) and len(m.vertices)])
     dcov, _ = cKDTree(tile_v[:, :2]).query(src.points[:, :2])
     uncovered = dcov > 15.0
-    grow = int(40 / step)
-    unc_ext = np.convolve(uncovered, np.ones(2 * grow + 1), "same") > 0
-    s_all = np.arange(len(src.points)) * step
+    # Dilate uncovered samples by a physical +/-40 m station window.
+    lo_idx = np.searchsorted(source_station, source_station - 40.0, side="left")
+    hi_idx = np.searchsorted(source_station, source_station + 40.0, side="right")
+    prefix = np.r_[0, np.cumsum(uncovered.astype(np.int64))]
+    unc_ext = (prefix[hi_idx] - prefix[lo_idx]) > 0
+    s_all = source_station
+    # Approximate each sample's represented station cell for a length estimate.
+    sample_span = np.empty(len(source_station), dtype=np.float64)
+    sample_span[0] = (source_station[1] - source_station[0]) / 2
+    sample_span[-1] = (source_station[-1] - source_station[-2]) / 2
+    if len(source_station) > 2:
+        sample_span[1:-1] = (source_station[2:] - source_station[:-2]) / 2
     # (the backdrop lives in the main level, which exists once: layer-0 pieces only)
-    unc_len = [float(uncovered[(s_all >= pc.sa) & (s_all <= pc.sb)].sum() * step) if pc.layer == 0 else 0.0
-               for pc in pieces]
+    unc_len = [float(sample_span[uncovered & (s_all >= pc.sa) & (s_all <= pc.sb)].sum())
+               if pc.layer == 0 else 0.0 for pc in pieces]
     bd_piece = int(np.argmax(unc_len)) if max(unc_len) > 20 else None
     if bd_piece is not None:
         rep.checks.append(f"backdrop terrain follows piece {bd_piece} ({unc_len[bd_piece]:.0f} m without track tiles)" +
@@ -526,7 +572,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
                 continue
             U = m.vertices[:, [0, 2, 1]].astype(np.float64)
             _, ix = s_tree_src.query(U[:, :2])
-            s_ = ix * step
+            s_ = source_station[ix]
             U = U[(s_ >= pc.sa - 150) & (s_ <= pc.sb + 150)]
             pts.append(to_new(j, U))
         if pts:
@@ -568,26 +614,28 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
         return np.where(conf > 0, h, np.nan), conf
 
     def seam_dz(j, P_new_m):
-        """Vertical correction (m) for points of piece j at new-layout positions."""
+        """Height correction only at the finite tile edge shared with a neighbour."""
         P = np.atleast_2d(P_new_m)
         dz = np.zeros(len(P))
         if cfg.seam_width <= 0:
             return dz
-        d_j, _ = tree_new[j].query(P[:, :2])
-        for b in range(len(pieces)):
-            if b == j:
+        for a, b, p0, e, q0, q1 in seam_edges:
+            if j == a:
+                other = b
+            elif j == b:
+                other = a
+            else:
                 continue
-            d_b, _ = tree_new[b].query(P[:, :2])
-            w = np.clip(1.0 - (d_b - d_j) / 2.0 / cfg.seam_width, 0.0, 1.0)
-            near = w > 0
-            if not near.any():
+            mask, w = seam_edge_weights(P, p0, e, q0, q1, cfg.seam_width)
+            if not mask.any():
                 continue
-            w = w * w * (3 - 2 * w)
-            zb, conf = surface_z(b, P[near, :2])
-            ok = np.isfinite(zb)
-            idx = np.flatnonzero(near)[ok]
-            dz[idx] += w[idx] * conf[ok] * (zb[ok] - P[idx, 2]) / 2.0
+            zb, conf = surface_z(other, P[mask, :2])
+            ok = np.isfinite(zb) & (conf > 0)
+            if ok.any():
+                ii = np.flatnonzero(mask)[ok]
+                dz[ii] += w[ii] * conf[ok] * (zb[ok] - P[ii, 2]) / 2.0
         return dz
+
 
     bd_re = re.compile(rf"SM_{lvl}Terrain\d{{4}}$")
     bd_pivot: dict[str, np.ndarray] = {}
@@ -691,8 +739,8 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
     payloads: dict[str, dict[int, bytes]] = collections.defaultdict(dict)
     tile_pivot: dict[tuple, np.ndarray] = {}
 
-    def place_trees(W, layer=0):
-        """world_m (N,3) source -> (keep, new world, yaw) for forest instances."""
+    def place_trees(W, source_yaw, layer=0):
+        """Move foliage and compute its orientation from its actual forward axis."""
         k, d, s, _ = assign(W, layer=layer)
         keep = (k >= 0) & lat_ok(s, d, cfg.terrain_clip)
         NW = W.copy()
@@ -701,9 +749,12 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
             m_ = k == kk
             pc = pieces[int(kk)]
             keep[m_] &= owns(int(kk), W[m_])
-            NW[m_] = to_new(int(kk), W[m_])
+            raw_new = W[m_] @ pc.R.T + pc.t
+            NW[m_] = warp(int(kk), raw_new) if pc.shears else raw_new
             NW[m_, 2] += seam_dz(int(kk), NW[m_])
-            yaw[m_] = pc.yaw + (warp_yaw(int(kk), NW[m_]) if pc.shears else 0.0)
+            yaw[m_] = pc.yaw
+            if pc.shears:
+                yaw[m_] += warp_yaw(int(kk), raw_new, source_yaw[m_] + pc.yaw)
             if int(kk) in surf:                            # only where the piece's terrain is
                 dd, _ = surf[int(kk)][0].query(NW[m_, :2], distance_upper_bound=15.0)
                 keep[np.flatnonzero(m_)] &= np.isfinite(dd)
@@ -862,7 +913,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
                     continue
                 try:
                     nb, st = move_hism(pk.export_bytes(e), pcg_roots[e.outer],
-                                       lambda W, layer=layer: place_trees(W, layer))
+                                       lambda W, source_yaw, layer=layer: place_trees(W, source_yaw, layer))
                 except Exception as ex_:                       # layout not understood: hide instead
                     nb, _ = hide_instances(pk.export_bytes(e))
                     rep.checks.append(f"forest {e.name}: hidden ({ex_})")
@@ -1007,7 +1058,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
 
         def keep(cen_cm, pc=pc, j=j):
             d, idx = assign.tree.query(cen_cm[:, :2] / 100)
-            s = idx * step
+            s = source_station[idx]
             return ((s >= pc.sa - cfg.range_ext) & (s <= pc.sb + cfg.range_ext) & lat_ok(s, d, cfg.terrain_clip)
                     & owns(j, cen_cm / 100))
         nbm, hs = transform_mesh(mb, pc.R, pc.t * 100, None if cfg.debug_no_clip else keep)
@@ -1027,7 +1078,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
         def keep(cen_cm):
             w = (cen_cm + pivot_cm) / 100
             d, idx = assign.tree.query(w[:, :2])
-            s = idx * step
+            s = source_station[idx]
             return (s >= pc.sa - cfg.range_ext) & (s <= pc.sb + cfg.range_ext) & lat_ok(s, d, lim) & owns(j, w)
         return keep
 
@@ -1115,8 +1166,8 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
                 n_un += 1
         rep.checks.append(f"unused tiles: {n_un} meshes hidden ({len(set(tile_pivot) - set(tile_piece))} tiles)")
     n_sh = sum(len(pc.shears) for pc in pieces) // 2
-    rep.checks.append(f"seams: tile vertices moved up to {seam_max:.1f} m (height blending within "
-                      f"{cfg.seam_width:.0f} m of piece boundaries" +
+    rep.checks.append(f"seams: {len(seam_edges)} finite adjacent tile edge(s); tile vertices moved up to "
+                      f"{seam_max:.1f} m (height blending within {cfg.seam_width:.0f} m of each shared edge" +
                       (f", {n_sh} join(s) smoothed)" if n_sh else ")"))
 
     def bd_keep_world(w_m):
@@ -1124,7 +1175,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
             return np.zeros(len(w_m), bool)
         pc = pieces[bd_piece]
         d, idx = assign.tree.query(w_m[:, :2])
-        s = idx * step
+        s = source_station[idx]
         return (unc_ext[idx] & (s >= pc.sa - 40) & (s <= pc.sb + 40) & lat_ok(s, d, cfg.terrain_clip)
                 & owns(bd_piece, w_m))
 
@@ -1138,7 +1189,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
         if bd_piece is None or not len(unc_s):
             return np.zeros(len(src_m))
         d, idx = assign.tree.query(src_m[:, :2])
-        s = idx * step
+        s = source_station[idx]
         j = np.clip(np.searchsorted(unc_s, s), 1, len(unc_s) - 1)
         ds = np.minimum(np.abs(s - unc_s[j - 1]), np.abs(s - unc_s[j]))
         pc0 = pieces[bd_piece]
@@ -1202,11 +1253,12 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
         Fv = np.vstack(filler_vis)
         ftree = cKDTree(Fv[:, :2])
         rp = resample(new_cl, 10.0)
+        rp_s = arclength(rp)
         above = []
         for k_r, p_r in enumerate(rp):
             ii = ftree.query_ball_point(p_r[:2], 6.0)
             if ii and Fv[ii, 2].max() > p_r[2] + 1.0:
-                above.append((k_r * 10.0, Fv[ii, 2].max() - p_r[2]))
+                above.append((float(rp_s[k_r]), Fv[ii, 2].max() - p_r[2]))
         if above:
             runs, a0, mx_ = [], above[0][0], 0.0
             for (x0, h0), nxt in zip(above, above[1:] + [(None, 0)]):
@@ -1242,7 +1294,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
         if far.any():
             idx = np.flatnonzero(far)
             rep.checks.append(f"FILLER COVERAGE: {far.mean():.0%} of the route has no filler ground under it "
-                              f"(between {idx[0] * 10:.0f} and {idx[-1] * 10:.0f} m)")
+                              f"(between {rp_s[idx[0]]:.0f} and {rp_s[idx[-1]]:.0f} m)")
         else:
             rep.checks.append("filler coverage: under the whole route")
     if cfg.filler:
@@ -1275,7 +1327,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
         if mt:
             key = (int(mt.group(1)), int(mt.group(2)))
             d, idx = assign.tree.query(cen[:, :2])
-            s = idx * step
+            s = source_station[idx]
             lim = cfg.road_clip if b"Road" in m.soft_sub else cfg.terrain_clip
             for lay in range(n_layers):
                 j = tile_pieces.get((lay, key))
@@ -1334,13 +1386,14 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
     gv = np.vstack([mo.vertices[:, [0, 2, 1]] for mo in out_meshes if len(mo.vertices)])
     gtree = cKDTree(gv[:, :2])
     rp = resample(new_cl, 10.0)
+    rp_s = arclength(rp)
     bad_s = []
     for k_r, p_r in enumerate(rp):
         ii = gtree.query_ball_point(p_r[:2], 4.0)
         z = gv[ii, 2] if ii else np.empty(0)
         z = z[z <= p_r[2] + 1.5]
         if not len(z) or p_r[2] - z.max() > 2.0:
-            bad_s.append(k_r * 10.0)
+            bad_s.append(float(rp_s[k_r]))
     if bad_s:
         runs, a0 = [], bad_s[0]
         for x0, x1 in zip(bad_s, bad_s[1:] + [None]):
@@ -1396,7 +1449,7 @@ def build_wp_stage(layout: Layout, best: TState, cuts: list[Cut], grid: TileGrid
             notes = [W.NoteOut(float(n.s), float(getattr(n, "length", 30.0)), n.text.split())
                      for n in layout.pacenotes if n.text.strip()]
         else:
-            notes = [W.NoteOut(float(n.s), 30.0, n.text.split()) for n in generate(new_cl[::-1].copy(), step)
+            notes = [W.NoteOut(float(n.s), 30.0, n.text.split()) for n in generate(new_cl[::-1].copy())
                      if n.text.strip()]
         pay, names = W.pacenote_payload(tpk, notes)
         new_pkgs[path] = rewrite_package(tpk, {0: pay}, names)
@@ -1567,7 +1620,7 @@ def _road_steps(out_meshes, new_cl, lats=(-2.0, 0.0, 2.0), max_jump=0.4, step=1.
     the given lateral offsets; jumps larger than max_jump between neighbouring
     samples. Returns [(s m, lateral m, jump m)], one per spot (s rounded)."""
     P = resample(new_cl, step)
-    s = np.arange(len(P)) * step
+    s = arclength(P)
     t = np.gradient(P[:, :2], axis=0)
     t /= np.maximum(np.linalg.norm(t, axis=1, keepdims=True), 1e-9)
     n = np.c_[-t[:, 1], t[:, 0]]
