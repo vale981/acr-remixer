@@ -31,6 +31,9 @@ class SourceStage:
     points: np.ndarray  # (N, 3) centreline, resampled to `step`
     width: np.ndarray  # (N,) road width (m)
     pacenotes: list[Pacenote] = field(default_factory=list)
+    # hash of the raw game data the route comes from (its spline control
+    # points), independent of how they are sampled; "" for synthetic stages
+    source_id: str = field(default="", compare=False)
     station: np.ndarray = field(init=False, repr=False)
 
     def __post_init__(self):

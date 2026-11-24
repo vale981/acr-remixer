@@ -1495,7 +1495,7 @@ fn main() -> eframe::Result<()> {
 mod tests {
     use super::{build_dir, code_level, forward_pipe_lines, norm_code, Prefs};
 
-    const CODE: &str = "R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:8720:JG";
+    const CODE: &str = "R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:5751:EU";
 
     #[test]
     fn share_code_level_and_whitespace() {
@@ -1514,14 +1514,14 @@ mod tests {
 
     #[test]
     fn code_build_folder_matches_the_backend() {
-        // the backend (stagegen/cli.py, _fnv_tag) names this code's folder ..._code53964059
+        // the backend (stagegen/cli.py, _fnv_tag) names this code's folder ..._code7EF3A987
         let p = Prefs {
             stage: "WalesS4HafrenSouth".into(),
             out_dir: "out".into(),
             code: CODE.into(),
             ..Default::default()
         };
-        assert!(build_dir(&p, 1).ends_with("WalesS4HafrenSouth_code53964059"));
+        assert!(build_dir(&p, 1).ends_with("WalesS4HafrenSouth_code7EF3A987"));
     }
 
     fn lines(input: &[u8]) -> Vec<String> {

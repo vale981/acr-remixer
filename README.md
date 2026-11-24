@@ -109,7 +109,7 @@ or uninstall it.
 stage* and on the 📋 Share button of each installed stage:
 
 ```
-R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:8720:JG
+R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:5751:EU
 ```
 
 It lists the pieces of the original stage (in metres along its route, `r` =

@@ -59,12 +59,12 @@ def _segments(a) -> int:
     """The level's pieces between tile crossings, for --sequence."""
     import json
     from .build import writers as W
-    from .extract.iostore import GameFS
+    from .extract.iostore import base_game_fs
     from .extract.real import DEFAULT_PAKS, load_wp_source
     from .extract.zen import Package
     from .tiles import TileGrid, TileSearchConfig, find_cuts, make_ranges, segment_table
 
-    fs = GameFS(a.paks or DEFAULT_PAKS, include_mods=False)
+    fs = base_game_fs(a.paks or DEFAULT_PAKS)
     ws = load_wp_source(fs, a.level)
     meshes, *_ = W.read_baked_raw(Package(fs.read(ws.baked)))
     grid = TileGrid.from_baked(meshes)
@@ -140,14 +140,14 @@ def _build_wp(a, paks: str) -> int:
     """Base-game World Partition level: tile-aligned recombination."""
     from .build import writers as W
     from .build.wp import build_wp_stage
-    from .extract.iostore import GameFS
+    from .extract.iostore import base_game_fs
     from .extract.real import load_wp_source
     from .extract.zen import Package
     from .progress import progress
     from .tiles import TileGrid, TileSearchConfig, find_cuts, make_ranges, tile_search
 
     progress(0.0, "reading the game files")
-    fs = GameFS(paks, include_mods=False)
+    fs = base_game_fs(paks)
     ws = load_wp_source(fs, a.level)
     progress(0.08, "searching a layout")
     st = ws.stage
@@ -164,7 +164,7 @@ def _build_wp(a, paks: str) -> int:
     if getattr(a, "share", None):
         from .sharecode import ShareCodeError, fingerprint, to_sequence
 
-        if fingerprint(st.points) != a.share.fingerprint:
+        if fingerprint(st) != a.share.fingerprint:
             print(
                 "warning: share code: this stage's data differs from where the code was made "
                 "(game update or different version); the result may differ"
@@ -233,7 +233,7 @@ def _build_wp(a, paks: str) -> int:
         foliage_flags(
             not getattr(a, "no_forest", False), not getattr(a, "no_grass", False), not getattr(a, "no_foliage", False)
         ),
-        fingerprint(st.points),
+        fingerprint(st),
     )
     print(f"share code: {share_code}")
     out = _out_dir(a)
@@ -368,11 +368,11 @@ def _build(a) -> int:
 
 def _build_impl(a) -> int:
     from .build.stage import build_stage
-    from .extract.iostore import GameFS
+    from .extract.iostore import base_game_fs
     from .extract.real import DEFAULT_PAKS, load_location
 
     paks = a.paks or DEFAULT_PAKS
-    fs = GameFS(paks, include_mods=False)
+    fs = base_game_fs(paks)
     if any(p.startswith(f"acr/Content/Levels/{a.level}/_Generated_/") for p in fs.index):
         return _build_wp(a, paks)
     stages = [s for s in load_location(a.level, paks) if s.name == a.level]

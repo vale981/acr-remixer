@@ -59,8 +59,15 @@ class ShareCode:
         return self.foliage[2] == "L"
 
 
-def fingerprint(points: np.ndarray) -> str:
-    """4 hex digits from the source centreline (decimetre precision)."""
+def fingerprint(source) -> str:
+    """4 hex digits identifying the source route: from the stage's raw game
+    data (`SourceStage.source_id`: its spline control points) when it has
+    some, so that changes to how routes are sampled don't change it; else
+    from the centreline points (decimetre precision; synthetic stages)."""
+    sid = getattr(source, "source_id", "")
+    if sid:
+        return sid[:4]
+    points = getattr(source, "points", source)
     q = np.round(np.asarray(points, dtype=np.float64)[:, :3] * 10.0).astype(np.int64)
     return hashlib.sha1(q.tobytes()).hexdigest()[:4]
 

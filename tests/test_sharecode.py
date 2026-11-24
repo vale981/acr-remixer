@@ -66,3 +66,18 @@ def test_fingerprint_notices_changed_stage_data():
     moved = pts.copy()
     moved[50, 2] += 0.5
     assert fingerprint(moved) != fp
+
+
+def test_fingerprint_prefers_the_raw_source_data():
+    from stagegen.model import SourceStage
+
+    pts = np.c_[np.arange(100.0) * 2, np.zeros(100), np.zeros(100)]
+    a = SourceStage("X", "x", "gravel", pts, np.full(100, 7.0), source_id="beef0123")
+    b = SourceStage("X", "x", "gravel", pts + 0.3, np.full(100, 7.0), source_id="beef0123")
+    assert fingerprint(a) == fingerprint(b) == "beef"  # resampled differently, same game data
+
+
+@pytest.mark.game
+def test_real_stage_fingerprint_comes_from_game_data(hafren):
+    st = hafren["ws"].stage
+    assert len(st.source_id) == 40 and fingerprint(st) == st.source_id[:4]

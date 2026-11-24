@@ -13,6 +13,7 @@ Levels are read straight from the IoStore containers; nothing is written.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from dataclasses import dataclass
@@ -24,7 +25,7 @@ from ..geometry import arclength, resample
 from ..model import Pacenote, SourceStage
 from .iostore import GameFS
 from .pacenote_table import read_pacenote_table
-from .splines import level_splines
+from .splines import level_splines, read_spline_curve
 from .zen import Package
 
 DEFAULT_PAKS = os.path.join(os.path.dirname(__file__), "..", "..", "..", "acr", "Content", "Paks")
@@ -213,8 +214,13 @@ def load_wp_source(fs: GameFS, lvl: str, step: float = 2.0) -> WPSource:
     for n in notes:
         n.s *= scale
     loc = re.sub(r"(SS\d+|S\d+.*)$", "", lvl)
+    fwd_pk = Package(fs.read(fwd_cell))
+    raw = read_spline_curve(fwd_pk, "CenterSpline")
+    source_id = hashlib.sha1(
+        np.ascontiguousarray(raw.positions, "<f8").tobytes() + np.ascontiguousarray(raw.input_keys, "<f8").tobytes()
+    ).hexdigest()
     stage = SourceStage(
-        lvl, loc, _surface(Package(fs.read(fwd_cell)), lvl), centre, width, sorted(notes, key=lambda n: n.s)
+        lvl, loc, _surface(fwd_pk, lvl), centre, width, sorted(notes, key=lambda n: n.s), source_id=source_id
     )
     baked = next(p for p in fs.index if p.endswith(f"DA_{lvl}BakedData.uasset"))
     print(
