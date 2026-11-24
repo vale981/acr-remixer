@@ -5,3 +5,6 @@
 
 # Format all Python code with ruff
 5e8ea228a99b0a92ba52404d5ff0a4e4e641ac7c
+
+# Format the Rust code with rustfmt
+9dcbdaa6299a2b603b2321085346e17caa855334
