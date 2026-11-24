@@ -84,7 +84,7 @@ lists the installed stages, each with its own *Uninstall* button.
   join is bent smoothly (up to 45°) and the pacenotes there are made to match;
   sharper joins stay sharp, and the window warns about them.
 
-![A practice sequence: piece 7-11 four times](docs/gui-sequence.png)
+![A practice sequence: piece 7-11 three times in a row, then once backwards](docs/gui-sequence.png)
 
 ## The options
 
@@ -126,7 +126,9 @@ and **Log** shows the details of the last build.
 
 ## What a stage looks like
 
-A camera tour through a generated stage, from the start (top left) to the finish:
+A camera tour through a generated stage, from the start (top left) to the
+finish: the practice sequence above, Hafren South's piece 7-11 four times,
+with shots 30 m before and after every join:
 
 ![Camera tour of a generated stage](docs/tour.jpg)
 
