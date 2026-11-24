@@ -374,7 +374,7 @@ fn apply_share_code(p: &mut Prefs, code: &str) -> Result<(), String> {
     let len: f32 = parts[1].parse().map_err(|_| "bad length")?;
     let seed: u32 = parts[2].parse().map_err(|_| "bad seed")?;
     p.stage = parts[0].to_string();
-    p.length_m = len.clamp(1000.0, 15000.0);
+    p.length_m = len.max(1000.0);
     p.seed = seed.max(1);
     p.forest = parts[3].contains('F');
     p.grass = parts[3].contains('G');
@@ -1130,8 +1130,26 @@ impl eframe::App for App {
                         ui.selectable_value(&mut p.stage, id.to_string(), format!("{name}{tag}"));
                     }
                 });
-                ui.add(egui::Slider::new(&mut p.length_m, 1000.0..=15000.0).step_by(100.0).suffix(" m").text("Length"))
-                    .on_hover_text("Rounded to the closest length the source stage allows");
+                ui.horizontal(|ui| {
+                    ui.label("Length");
+                    // open-ended: the source road (times Repeats) is the real limit
+                    ui.add(
+                        egui::DragValue::new(&mut p.length_m)
+                            .range(1000.0..=f32::MAX)
+                            .speed(100.0)
+                            .suffix(" m"),
+                    )
+                    .on_hover_text(
+                        "Type a length or drag. The build picks the closest length the \
+                         source stage allows: about 90 % of its road times Repeats",
+                    );
+                });
+                if p.length_m > 15000.0 {
+                    ui.small(
+                        "Long stage: may need Repeats above 1, takes longer to build and \
+                         more memory (also in the game).",
+                    );
+                }
                 ui.horizontal(|ui| {
                     ui.label("Seed");
                     ui.add(egui::DragValue::new(&mut p.seed).range(1..=999_999));
