@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+// SPDX-FileCopyrightText: 2026 iceone88
 // SPDX-License-Identifier: MIT
 
 //! ACR Remixer GUI (egui; formerly acr-stagegen). Phase 1: drives the Python pipeline

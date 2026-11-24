@@ -1,4 +1,5 @@
 ﻿# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 iceone88
 # SPDX-License-Identifier: MIT
 
 """Minimal read-only IoStore (.utoc/.ucas) reader for UE 5.x containers (TOC v8).
