@@ -78,10 +78,20 @@ def _write_levels(levels) -> bytes:
 
 
 def read_grid(payload: bytes):
-    """-> (levels, start of GridLevels, end of GridLevels, loading range offset)."""
-    if struct.unpack_from("<i", payload, 4)[0] != 1:
+    """-> (levels, start of GridLevels, end of GridLevels, loading range offset).
+
+    The spatial hash starts with a property header [1, 2]: property 1 is a
+    small struct that only ever holds zero/default values (its own header:
+    2 bytes in Wales/Alsace, 3 with a zero mask in Greece/Sweden/Monte
+    Carlo), property 2 is StreamingGrids, whose count follows."""
+    r = Reader(payload, 0)
+    h = r.header()
+    if 1 in h and r.header():
+        raise ValueError("spatial hash: unexpected values before the streaming grids")
+    if 2 not in h:
+        raise ValueError("spatial hash: no streaming grids")
+    if r.i32() != 1:
         raise ValueError("expected exactly one streaming grid")
-    r = Reader(payload, 8)
     h = r.header()
     lr_off = None
     for f in h:

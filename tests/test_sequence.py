@@ -74,3 +74,35 @@ def test_all_tape_poles_decode(hafren):
         poles += len(ix)
         dec += len({c.owner for c in decode_components(pk, rules) if c.root and c.loc is not None and c.owner in ix})
     assert poles > 0 and dec == poles
+
+
+@pytest.mark.game
+@pytest.mark.parametrize(
+    "level",
+    [
+        "AlsaceS2Munster",
+        "AlsaceS4Saverne",
+        "GreeceS3Elatia",
+        "GreeceS4Loutraki",
+        "MonteCarloS2Sisteron",
+        "SwedenS1Vargasen",
+        "SwedenS3Fredriksberg",
+        "WalesS3HafrenNorth",
+        "WalesS4HafrenSouth",
+    ],
+)
+def test_streaming_grid_reads_and_round_trips(paks, level):
+    """Repeated pieces register cell copies in the streaming grid: it must
+    parse on every stage (Greece/Sweden/Monte Carlo have a longer header)."""
+    from stagegen.build.wp_hash import _write_levels, read_grid
+    from stagegen.extract.iostore import base_game_fs
+    from stagegen.extract.real import load_wp_source
+    from stagegen.extract.zen import Package
+
+    fs = base_game_fs(paks)
+    pk = Package(fs.read(load_wp_source(fs, level).main))
+    hi = next(i for i, e in enumerate(pk.exports) if e.name.startswith("WorldPartitionRuntimeSpatialHash"))
+    hp = pk.export_bytes(pk.exports[hi])
+    levels, a, b, _ = read_grid(hp)
+    assert sum(len(c) for lv in levels for c in lv.layer_cells) > 100
+    assert _write_levels(levels) == hp[a:b]
