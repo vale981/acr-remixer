@@ -9,6 +9,7 @@ stages. The scale is a common 1-6 (6 = fastest) system keyed on minimum radius.
 Real ACR notes should be carried over wherever a segment is used forwards;
 see Segment.pacenotes().
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,10 +18,9 @@ from .geometry import arclength, curvature, grade, smooth
 from .model import Pacenote
 
 # (max radius in m, call)
-SCALE = [(15, "hairpin"), (25, "1"), (40, "2"), (60, "3"),
-         (90, "4"), (140, "5"), (250, "6")]
-CORNER_K = 1 / 250   # anything tighter than R250 is a corner
-CUE_LEAD = 40.0      # trigger the call this far before the corner starts
+SCALE = [(15, "hairpin"), (25, "1"), (40, "2"), (60, "3"), (90, "4"), (140, "5"), (250, "6")]
+CORNER_K = 1 / 250  # anything tighter than R250 is a corner
+CUE_LEAD = 40.0  # trigger the call this far before the corner starts
 
 
 def _call(radius: float) -> str:
@@ -39,7 +39,7 @@ def generate(points: np.ndarray, step: float | None = None) -> list[Pacenote]:
     """
     station = arclength(points)
     k = curvature(points, station, window=9)
-    notes: list[tuple[float, float, str]] = []   # (start_s, end_s, text)
+    notes: list[tuple[float, float, str]] = []  # (start_s, end_s, text)
     corner = np.abs(k) > CORNER_K
     i, n = 0, len(k)
     while i < n:

@@ -11,6 +11,7 @@ Row layout (unversioned):
     [4] FString  audio/line id (e.g. ES2_SS3_PN_41[0])
     [5] (unknown, rarely set; 4 bytes)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -33,10 +34,10 @@ class PacenoteRow:
 def read_pacenote_table(pk: Package) -> list[PacenoteRow]:
     e = pk.exports[0]
     r = Reader(pk.d, e.data_offset)
-    obj = r.header()            # UDataTable properties (RowStruct)
+    obj = r.header()  # UDataTable properties (RowStruct)
     for _ in obj:
         r.i32()
-    r.i32()                     # no-guid marker
+    r.i32()  # no-guid marker
     n = r.i32()
     rows = []
     for _ in range(n):

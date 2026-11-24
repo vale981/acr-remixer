@@ -4,6 +4,7 @@
 """Zen (IoStore) cooked package header parsing for UE 5.6: name map, imports,
 export map. Property data is unversioned, so callers decode export payloads
 with type-specific readers."""
+
 from __future__ import annotations
 
 import struct
@@ -21,36 +22,51 @@ class Export:
     template_index: int
     public_hash: int
     flags: int
-    data_offset: int = 0          # absolute offset into the package bytes
+    data_offset: int = 0  # absolute offset into the package bytes
 
 
 def read_name_batch(d: bytes, p: int) -> tuple[list[str], int]:
-    n, = struct.unpack_from("<I", d, p)
+    (n,) = struct.unpack_from("<I", d, p)
     if n == 0:
-        return [], p + 4   # an empty batch is just the count
+        return [], p + 4  # an empty batch is just the count
     p += 8
-    p += 8                 # hash version
-    p += 8 * n             # hashes
-    lens = [struct.unpack_from(">H", d, p + 2 * i)[0] for i in range(n)]; p += 2 * n
+    p += 8  # hash version
+    p += 8 * n  # hashes
+    lens = [struct.unpack_from(">H", d, p + 2 * i)[0] for i in range(n)]
+    p += 2 * n
     names = []
     for L in lens:
         if L & 0x8000:
-            L &= 0x7FFF        # UTF-16, not aligned
-            names.append(d[p: p + 2 * L].decode("utf-16-le")); p += 2 * L
+            L &= 0x7FFF  # UTF-16, not aligned
+            names.append(d[p : p + 2 * L].decode("utf-16-le"))
+            p += 2 * L
         else:
-            names.append(d[p: p + L].decode("latin-1")); p += L
+            names.append(d[p : p + L].decode("latin-1"))
+            p += L
     return names, p
 
 
 class Package:
     def __init__(self, data: bytes):
         self.d = d = data
-        (has_ver, self.header_size, name_idx, name_num, self.pkg_flags,
-         self.cooked_header_size, self.imported_hashes_off, self.import_map_off,
-         self.export_map_off, self.export_bundle_off, self.dep_hdr_off,
-         self.dep_entries_off, self.imported_pkg_names_off,
-         self.cell_import_off, self.cell_export_off) = struct.unpack_from("<IIIIIIiiiiiiiii", d, 0)
-        p = 15 * 4   # UE 5.5+ summary includes cell import/export map offsets
+        (
+            has_ver,
+            self.header_size,
+            name_idx,
+            name_num,
+            self.pkg_flags,
+            self.cooked_header_size,
+            self.imported_hashes_off,
+            self.import_map_off,
+            self.export_map_off,
+            self.export_bundle_off,
+            self.dep_hdr_off,
+            self.dep_entries_off,
+            self.imported_pkg_names_off,
+            self.cell_import_off,
+            self.cell_export_off,
+        ) = struct.unpack_from("<IIIIIIiiiiiiiii", d, 0)
+        p = 15 * 4  # UE 5.5+ summary includes cell import/export map offsets
         if has_ver:
             raise NotImplementedError("versioned zen package")
         self.names, p = read_name_batch(d, p)
@@ -73,7 +89,7 @@ class Package:
         return s if num == 0 else f"{s}_{num - 1}"
 
     def export_bytes(self, e: Export) -> bytes:
-        return self.d[e.data_offset: e.data_offset + e.serial_size]
+        return self.d[e.data_offset : e.data_offset + e.serial_size]
 
     def imported_package_names(self) -> list[str]:
         """Full names of the imported packages (name batch + u32 number per

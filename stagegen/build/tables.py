@@ -12,6 +12,7 @@ table (`u32 flags, i8 history 11, FName table, FString key`); copies get a
 plain text instead (`u32 flags, i8 history 0, FString namespace, FString key,
 FString source`).
 """
+
 from __future__ import annotations
 
 import struct
@@ -25,7 +26,7 @@ def _fstring(s: str) -> bytes:
     if s.isascii():
         b = s.encode("ascii") + b"\0"
         return struct.pack("<i", len(b)) + b
-    b = s.encode("utf-16-le") + b"\0\0"              # negative length = UTF-16 characters
+    b = s.encode("utf-16-le") + b"\0\0"  # negative length = UTF-16 characters
     return struct.pack("<i", -(len(b) // 2)) + b
 
 
@@ -44,8 +45,8 @@ class Table:
                 break
         else:
             raise ValueError("row count not found")
-        self.head = b[:self.count_off]
-        self.rows: list[list] = []                    # [name, bytes]
+        self.head = b[: self.count_off]
+        self.rows: list[list] = []  # [name, bytes]
         offs = self._row_offsets(b, self.count_off + 4, count)
         for a, z in zip(offs, offs[1:] + [len(b)]):
             self.rows.append([self.names[struct.unpack_from("<i", b, a)[0]], bytearray(b[a:z])])
@@ -74,9 +75,15 @@ class Table:
             k = offs[-1] + 10
             while k < len(b) - 10:
                 ni, nn = struct.unpack_from("<ii", b, k)
-                in_handle = b[k - 2:k] == b"\x00\x05" or (k >= 10 and b[k - 10:k - 8] == b"\x00\x05")
-                if 0 <= ni < len(self.names) and nn == 0 and not in_handle and not self.names[ni].startswith("/") \
-                        and self.names[ni] != "None" and self._covered(b, k + 8) == sig:
+                in_handle = b[k - 2 : k] == b"\x00\x05" or (k >= 10 and b[k - 10 : k - 8] == b"\x00\x05")
+                if (
+                    0 <= ni < len(self.names)
+                    and nn == 0
+                    and not in_handle
+                    and not self.names[ni].startswith("/")
+                    and self.names[ni] != "None"
+                    and self._covered(b, k + 8) == sig
+                ):
                     offs.append(k)
                     break
                 k += 1
@@ -131,7 +138,7 @@ class Table:
                     n_key = struct.unpack_from("<i", row, k + 13)[0]
                     if 0 < n_key < 256:
                         key, text = texts[t]
-                        out += row[k:k + 4] + bytes([0]) + _fstring("Stagegen") + _fstring(key) + _fstring(text)
+                        out += row[k : k + 4] + bytes([0]) + _fstring("Stagegen") + _fstring(key) + _fstring(text)
                         k += 13 + 4 + n_key
                         t += 1
                         continue
@@ -150,11 +157,14 @@ class Table:
             raise ValueError(f"handle {table}/{after_row} not found")
         # walk back over earlier elements of the same table to the array start
         start = a
-        while start >= 18 and bytes(row[start - 18: start - 16]) == bytes([0, 5]) and \
-                struct.unpack_from("<i", row, start - 16)[0] == self.idx(table):
+        while (
+            start >= 18
+            and bytes(row[start - 18 : start - 16]) == bytes([0, 5])
+            and struct.unpack_from("<i", row, start - 16)[0] == self.idx(table)
+        ):
             start -= 18
         n = struct.unpack_from("<i", row, start - 4)[0]
-        if not (0 < n < 1000) or bytes(row[start + 18 * (n - 1): start + 18 * (n - 1) + 2]) != bytes([0, 5]):
+        if not (0 < n < 1000) or bytes(row[start + 18 * (n - 1) : start + 18 * (n - 1) + 2]) != bytes([0, 5]):
             raise ValueError("array layout not understood")
         struct.pack_into("<i", row, start - 4, n + 1)
         end = start + 18 * n
@@ -187,14 +197,17 @@ class Table:
                     continue
                 # array start: walk back over elements of the same table
                 s = k
-                while s >= 18 and bytes(row[s - 18:s - 16]) == b"\x00\x05" and \
-                        struct.unpack_from("<i", row, s - 16)[0] == ti:
+                while (
+                    s >= 18
+                    and bytes(row[s - 18 : s - 16]) == b"\x00\x05"
+                    and struct.unpack_from("<i", row, s - 16)[0] == ti
+                ):
                     s -= 18
                 n = struct.unpack_from("<i", row, s - 4)[0]
                 if not 0 < n < 1000:
                     raise ValueError("handle is not in an array")
                 struct.pack_into("<i", row, s - 4, n - 1)
-                del row[k:k + 18]
+                del row[k : k + 18]
                 continue
             k += 1
 
@@ -222,8 +235,8 @@ T_VARIANTS = DB + "TrackSelection/DT_TracksVariants.uasset"
 T_LOCATIONS = DB + "TrackSelection/DT_TracksLocations.uasset"
 
 
-TABLES_PAK = "pakchunk99-Tables_Stagegen_9_P"      # "_Stagegen_": never read back as source data
-STAGE_META = ".stagegen.json"                      # next to an own-level container: {level, name, display, ...}
+TABLES_PAK = "pakchunk99-Tables_Stagegen_9_P"  # "_Stagegen_": never read back as source data
+STAGE_META = ".stagegen.json"  # next to an own-level container: {level, name, display, ...}
 
 
 def build_tables(fs, stages: list[dict]) -> tuple[dict, list[str]]:
@@ -233,8 +246,9 @@ def build_tables(fs, stages: list[dict]) -> tuple[dict, list[str]]:
     tabs = {p: Table(Package(fs.read(p))) for p in (T_LEVELS, T_TRACKS, T_VARIANTS, T_LOCATIONS)}
     notes = []
     for s in stages:
-        notes += _add_stage(tabs[T_LEVELS], tabs[T_TRACKS], tabs[T_VARIANTS], tabs[T_LOCATIONS],
-                            s["level"], s["name"], s["display"])
+        notes += _add_stage(
+            tabs[T_LEVELS], tabs[T_TRACKS], tabs[T_VARIANTS], tabs[T_LOCATIONS], s["level"], s["name"], s["display"]
+        )
     return {p: t.build() for p, t in tabs.items()}, notes
 
 
@@ -249,8 +263,11 @@ def _add_stage(lv: Table, tr: Table, va: Table, lo: Table, level: str, new: str,
     location's track list."""
     notes = []
     lvl_path = f"/Game/Levels/{level}"
-    lv_key = next((n for n, r in lv.rows if struct.unpack_from("<i", r, 10)[0] == lv.names.index(lvl_path)), None) \
-        if lvl_path in lv.names else None
+    lv_key = (
+        next((n for n, r in lv.rows if struct.unpack_from("<i", r, 10)[0] == lv.names.index(lvl_path)), None)
+        if lvl_path in lv.names
+        else None
+    )
     if lv_key is None:
         raise ValueError(f"no DT_Levels row for {lvl_path}")
     lv.copy_row(lv_key, new, {lvl_path: f"/Game/Levels/{new}", level: new})
@@ -264,8 +281,13 @@ def _add_stage(lv: Table, tr: Table, va: Table, lo: Table, level: str, new: str,
 
     for src_v, suffix, label in ((fwd, "FullForward", "Forward"), (rev, "FullReverse", "Reverse")):
         row = va.copy_row(src_v, new + suffix, {tr_key: new})
-        va.replace_texts(row, [(f"STAGEGEN_{new}_{suffix}_SHORT", f"{display} ({label})"),
-                               (f"STAGEGEN_{new}_{suffix}", f"{display} ({label})")])
+        va.replace_texts(
+            row,
+            [
+                (f"STAGEGEN_{new}_{suffix}_SHORT", f"{display} ({label})"),
+                (f"STAGEGEN_{new}_{suffix}", f"{display} ({label})"),
+            ],
+        )
         notes.append(f"variant {new + suffix} from {src_v}")
 
     row = tr.copy_row(tr_key, new, {lv_key: new, fwd: new + "FullForward", rev: new + "FullReverse"})
@@ -287,6 +309,7 @@ def write_tables_container(paks_dir: str) -> list[str]:
     from . import container_header as CH
     from .cityhash import name_hash
     from .iostore_write import ChunkIn, container_header_chunk_id, write_container
+
     mods = os.path.join(paks_dir, "~mods")
     base = os.path.join(mods, TABLES_PAK)
     for ext in (".utoc", ".ucas", ".pak"):
@@ -294,7 +317,7 @@ def write_tables_container(paks_dir: str) -> list[str]:
             os.remove(base + ext)
     stages = []
     for p in sorted(glob.glob(os.path.join(mods, "*" + STAGE_META))):
-        if os.path.exists(p[:-len(STAGE_META)] + ".utoc"):
+        if os.path.exists(p[: -len(STAGE_META)] + ".utoc"):
             with open(p, encoding="utf-8") as f:
                 stages.append(json.load(f))
     if not stages:
@@ -310,8 +333,9 @@ def write_tables_container(paks_dir: str) -> list[str]:
             headers[id(c)] = CH.parse(c.read_entry(h_i))
         pid = struct.unpack_from("<Q", c.chunk_ids[i], 0)[0]
         orig = headers[id(c)].entries.get(pid, CH.StoreEntry())
-        entries[pid] = CH.StoreEntry([CH.package_id(n) for n in Package(data).imported_package_names()],
-                                     orig.shader_maps)
+        entries[pid] = CH.StoreEntry(
+            [CH.package_id(n) for n in Package(data).imported_package_names()], orig.shader_maps
+        )
         chunks.append(ChunkIn(c.chunk_ids[i], data, path))
     chunks.append(ChunkIn(container_header_chunk_id(cid), CH.build(CH.ContainerHeader(cid, entries))))
     with open(os.path.join(os.path.dirname(__file__), "empty_mod.pak"), "rb") as f:

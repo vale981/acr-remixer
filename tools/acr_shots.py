@@ -10,6 +10,7 @@ join, finish) for the mod, waits for its "[StageTest] at <label>" log lines
 while you (or the harness) start the session, grabs a screenshot 1 s after
 each, and saves ONE contact sheet (sheet.jpg) with the labels.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,6 +43,7 @@ def install_mod():
 def points_for(build_dir: str, every: float):
     sys.path.insert(0, HERE)
     from acr_autopilot import route_from_container
+
     utoc = glob.glob(os.path.join(build_dir, "*_Stagegen_9_P.utoc"))[0]
     R = route_from_container(utoc)
     S = np.r_[0, np.cumsum(np.linalg.norm(np.diff(R[:, :2], axis=0), axis=1))]
@@ -86,15 +88,16 @@ def main():
         os.remove(old)
     sys.path.insert(0, HERE)
     from acr_harness import shot
+
     pos = os.path.getsize(LOG) if os.path.exists(LOG) else 0
-    open(go, "w").close()            # tour starts now (the car must have driven off the start line)
+    open(go, "w").close()  # tour starts now (the car must have driven off the start line)
     got, t0 = [], time.time()
     while time.time() - t0 < a.timeout:
         time.sleep(0.5)
         if not os.path.exists(LOG):
             continue
         if os.path.getsize(LOG) < pos:
-            pos = 0                                       # log restarted with the game
+            pos = 0  # log restarted with the game
         with open(LOG, "rb") as f:
             f.seek(pos)
             new = f.read().decode("utf-8", "ignore")
@@ -114,8 +117,10 @@ def main():
         if t0 < 0:
             break
     if not got:
-        print("no shots"); return
+        print("no shots")
+        return
     from PIL import Image, ImageDraw
+
     cols = 5
     w, h = 384, 216
     sheet = Image.new("RGB", (cols * w, ((len(got) + cols - 1) // cols) * h), "black")

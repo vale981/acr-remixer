@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """The build report's step check on synthetic road meshes."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,7 +17,7 @@ def _strip(x0, x1, z_fn, sub=b"PersistentLevel.SM_LevelTrack0101_GEN", width=12.
     V = []
     for x in xs:
         for y in (-width / 2, width / 2):
-            V.append((x, z_fn(x), y))                        # baked frame: (x, up, y)
+            V.append((x, z_fn(x), y))  # baked frame: (x, up, y)
     V = np.array(V, np.float32)
     idx = []
     for i in range(len(xs) - 1):

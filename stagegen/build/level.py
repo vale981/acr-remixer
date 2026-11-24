@@ -1,4 +1,4 @@
-﻿# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Exact, per-class decoding and patching of root scene-component transforms
@@ -10,6 +10,7 @@ RelativeScale3D L+2, AttachParent L-5) sits at a class-specific index. The
 rules below were derived from the WRC Generations stage levels and are only
 applied to components whose decoded values pass sanity checks.
 """
+
 from __future__ import annotations
 
 import struct
@@ -26,7 +27,7 @@ from .writers import _hdr_for
 class Rule:
     L: int
     trailer: int
-    extras: dict          # index -> byte size, for indices > L+2 seen in practice
+    extras: dict  # index -> byte size, for indices > L+2 seen in practice
 
 
 # keyed by a representative export name of the class
@@ -59,7 +60,7 @@ class Comp:
     loc: np.ndarray | None
     rot: np.ndarray | None
     scale: np.ndarray | None
-    zeros: tuple = ()             # zero-masked property indices (explicitly zero, must be kept)
+    zeros: tuple = ()  # zero-masked property indices (explicitly zero, must be kept)
 
     @property
     def root(self) -> bool:
@@ -93,11 +94,11 @@ TAILS = {163: bytes(12) + b"\x01\0\0\0" + bytes(4)}
 def _find_lod_block(d: bytes, lo: int, end: int, n_trip: int) -> int | None:
     """End of the transform block of a StaticMeshComponent whose native tail
     holds LODData. Exactly one candidate must fit, otherwise give up."""
-    if d[end - 8: end] != b"\x01\0\0\0" + bytes(4):
+    if d[end - 8 : end] != b"\x01\0\0\0" + bytes(4):
         return None
     hits = []
     for p in range(lo + 24 * n_trip, min(end - 12, lo + 24 * n_trip + 256)):
-        if d[p: p + 8] != bytes(8):
+        if d[p : p + 8] != bytes(8):
             continue
         cnt = struct.unpack_from("<i", d, p + 8)[0]
         if not 1 <= cnt <= 8:
@@ -129,7 +130,7 @@ def decode_components(pk: Package, rules: dict | None = None) -> list[Comp]:
         r = Reader(d, e.data_offset)
         try:
             h, zeros = r.header_full()
-        except Exception:     # noqa: BLE001
+        except Exception:  # noqa: BLE001
             continue
         L = rule.L
         if not ({L, L + 1, L + 2} & set(h)):
@@ -145,7 +146,7 @@ def decode_components(pk: Package, rules: dict | None = None) -> list[Comp]:
             # values are serialised in index order: with nothing before L the
             # transform block starts right after the header, whatever follows
             cands.append(r.p + 24 * n_trip)
-        if d[end - rule.trailer: end] == TAILS.get(L, bytes(8)) and all(x in rule.extras for x in after):
+        if d[end - rule.trailer : end] == TAILS.get(L, bytes(8)) and all(x in rule.extras for x in after):
             cands.append(end - rule.trailer - sum(rule.extras[x] for x in after))
         if L == 163 and not after:
             # StaticMeshComponent with native LODData (painted vertex colours):
@@ -160,15 +161,21 @@ def decode_components(pk: Package, rules: dict | None = None) -> list[Comp]:
             p = block_start
             loc = rot = sc = None
             if L in h:
-                loc = np.array(struct.unpack_from("<3d", d, p)); p += 24
+                loc = np.array(struct.unpack_from("<3d", d, p))
+                p += 24
             if L + 1 in h:
-                rot = np.array(struct.unpack_from("<3d", d, p)); p += 24
+                rot = np.array(struct.unpack_from("<3d", d, p))
+                p += 24
             if L + 2 in h:
-                sc = np.array(struct.unpack_from("<3d", d, p)); p += 24
+                sc = np.array(struct.unpack_from("<3d", d, p))
+                p += 24
             # unversioned properties are only written when they differ from the default
             # (exactly: a scale of 0.99999998 is stored, e.g. on scaled tape poles)
-            if (loc is not None and not loc.any()) or (rot is not None and not rot.any()) or \
-                    (sc is not None and np.all(sc == 1.0)):
+            if (
+                (loc is not None and not loc.any())
+                or (rot is not None and not rot.any())
+                or (sc is not None and np.all(sc == 1.0))
+            ):
                 continue
             if not _sane(loc, rot, sc):
                 continue
@@ -177,8 +184,7 @@ def decode_components(pk: Package, rules: dict | None = None) -> list[Comp]:
     return out
 
 
-def patched_payload(pk: Package, c: Comp, loc: np.ndarray, rot: np.ndarray,
-                    scale: np.ndarray | None = None) -> bytes:
+def patched_payload(pk: Package, c: Comp, loc: np.ndarray, rot: np.ndarray, scale: np.ndarray | None = None) -> bytes:
     """Payload of component c with RelativeLocation/Rotation (and optionally
     Scale) set; adds the properties to the header if they were default."""
     e = pk.exports[c.export]
@@ -192,4 +198,4 @@ def patched_payload(pk: Package, c: Comp, loc: np.ndarray, rot: np.ndarray,
     block = b"".join(struct.pack("<3d", *v) for _, v, keep in vals if keep)
     zeros = [z for z in c.zeros if z not in present and z not in (L, L + 1, L + 2)]
     head = _hdr_for(sorted(present), zeros)
-    return head + d[c.hdr_end: c.block_start] + block + d[c.block_end: e.data_offset + e.serial_size]
+    return head + d[c.hdr_end : c.block_start] + block + d[c.block_end : e.data_offset + e.serial_size]

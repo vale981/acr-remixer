@@ -6,6 +6,7 @@ with likely FName references (i32 name index + i32 number) resolved.
 
     py tools/dt_dump.py acr/Content/Data/Database/Main/TrackSelection/DT_Tracks.uasset [row filter]
 """
+
 from __future__ import annotations
 
 import os
@@ -41,13 +42,17 @@ def rows(pk: Package):
     # table have similar sizes, so walk greedily: the next FName that parses as
     # a row name and leaves exactly the remaining rows possible.
     offs = [start]
-    row_name_idx = {struct.unpack_from("<i", b, start)[0]}
     while len(offs) < count:
         k = offs[-1] + 10
         while k < len(b) - 8:
             ni, nn = struct.unpack_from("<ii", b, k)
-            if 0 <= ni < n_names and nn == 0 and b[k + 8: k + 10] == b[offs[0] + 8: offs[0] + 10] \
-                    and pk.names[ni] not in ("None",) and not pk.names[ni].startswith("/"):
+            if (
+                0 <= ni < n_names
+                and nn == 0
+                and b[k + 8 : k + 10] == b[offs[0] + 8 : offs[0] + 10]
+                and pk.names[ni] not in ("None",)
+                and not pk.names[ni].startswith("/")
+            ):
                 offs.append(k)
                 break
             k += 1

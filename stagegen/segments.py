@@ -7,6 +7,7 @@
 A good cut point is somewhere a seam will be least noticeable and easiest to
 blend: low horizontal curvature, roughly constant grade, and steady width.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,12 +21,12 @@ from .model import EndState, Segment, SourceStage
 @dataclass
 class CutConfig:
     step: float = 2.0
-    max_curvature: float = 1 / 250   # straight-ish: radius > 250 m around the cut
+    max_curvature: float = 1 / 250  # straight-ish: radius > 250 m around the cut
     max_grade_change: float = 0.015  # grade must be steady across the window
-    window_m: float = 30.0           # half-window that has to be quiet
+    window_m: float = 30.0  # half-window that has to be quiet
     min_len: float = 250.0
     max_len: float = 1200.0
-    anchor_ends: bool = False        # first segment starts at the stage start, last ends at the finish
+    anchor_ends: bool = False  # first segment starts at the stage start, last ends at the finish
 
 
 def cut_candidates(stage: SourceStage, cfg: CutConfig) -> np.ndarray:
@@ -40,9 +41,11 @@ def cut_candidates(stage: SourceStage, cfg: CutConfig) -> np.ndarray:
         lo = int(np.searchsorted(s, s[i] - cfg.window_m, side="left"))
         hi = int(np.searchsorted(s, s[i] + cfg.window_m, side="right"))
         win = slice(lo, hi)
-        ok[i] = (k[win].max() < cfg.max_curvature
-                 and np.ptp(g[win]) < cfg.max_grade_change
-                 and np.ptp(stage.width[win]) < 0.6)
+        ok[i] = (
+            k[win].max() < cfg.max_curvature
+            and np.ptp(g[win]) < cfg.max_grade_change
+            and np.ptp(stage.width[win]) < 0.6
+        )
     # Always allow the original stage start/end as cut points.
     ok[0] = ok[-1] = True
     return np.flatnonzero(ok)
@@ -55,8 +58,7 @@ def cut_stage(stage: SourceStage, cfg: CutConfig) -> list[Segment]:
     segs: list[Segment] = []
     i = int(cand[0])
     if cfg.anchor_ends:
-        first = cand[(station[cand] >= station[0] + cfg.min_len) &
-                     (station[cand] <= station[0] + cfg.max_len)]
+        first = cand[(station[cand] >= station[0] + cfg.min_len) & (station[cand] <= station[0] + cfg.max_len)]
         if len(first) == 0:
             first = cand[station[cand] >= station[0] + cfg.min_len][:1]
         if len(first):
@@ -98,7 +100,6 @@ def end_states(seg: Segment, reversed_: bool, step: float) -> tuple[EndState, En
     def state(a: int, b: int, at: int) -> EndState:
         d = p[b] - p[a]
         horiz = np.linalg.norm(d[:2])
-        return EndState(p[at].copy(), float(np.arctan2(d[1], d[0])),
-                        float(d[2] / horiz), float(w[at]))
+        return EndState(p[at].copy(), float(np.arctan2(d[1], d[0])), float(d[2] / horiz), float(w[at]))
 
     return state(0, end_span, 0), state(start_of_end, -1, -1)

@@ -10,6 +10,7 @@ size: positions (float32 cm), packed int8 tangents (rotated about Z) and the
 two FBoxSphereBounds copies (doubles) near the start of the export. Triangles
 are clipped with the same keep rule as the tile meshes.
 """
+
 from __future__ import annotations
 
 import struct
@@ -57,7 +58,7 @@ def transform_mesh(b: bytes, R: np.ndarray, t_cm: np.ndarray, keep_fn=None) -> t
     c, s = R[0, 0], R[1, 0]
     for lod in lods:
         P = np.frombuffer(b, "<f4", 3 * lod.n, lod.pos_off).reshape(-1, 3).astype(np.float64)
-        out[lod.pos_off: lod.pos_off + 12 * lod.n] = (P @ R.T + t_cm).astype("<f4").tobytes()
+        out[lod.pos_off : lod.pos_off + 12 * lod.n] = (P @ R.T + t_cm).astype("<f4").tobytes()
         # tangents: bulk (8, n) a few bytes after the positions: TangentX, TangentZ as int8 xyzw
         p = lod.pos_off + 12 * lod.n
         hit = None
@@ -71,7 +72,7 @@ def transform_mesh(b: bytes, R: np.ndarray, t_cm: np.ndarray, keep_fn=None) -> t
                 nx = c * T[:, x] - s * T[:, y]
                 ny = s * T[:, x] + c * T[:, y]
                 T[:, x], T[:, y] = nx, ny
-            out[hit: hit + 8 * lod.n] = np.clip(np.round(T), -127, 127).astype(np.int8).tobytes()
+            out[hit : hit + 8 * lod.n] = np.clip(np.round(T), -127, 127).astype(np.int8).tobytes()
             st["tangents"] = True
     # bounds: new AABB of the transformed box
     ctr = (lo + hi) / 2

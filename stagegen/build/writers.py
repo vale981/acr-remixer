@@ -1,4 +1,4 @@
-﻿# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Serialisers for the three asset kinds a generated stage rewrites:
@@ -6,6 +6,7 @@ pacenote DataTable rows, BakedDataContainer meshes and DMSplineComponent curves.
 
 Each writer re-parses the original export to find the byte ranges it
 replaces, so anything it does not understand is carried over verbatim."""
+
 from __future__ import annotations
 
 import struct
@@ -69,13 +70,15 @@ def pacenote_payload(pk: Package, notes: list[NoteOut]) -> tuple[bytes, list[str
                 r.fstring()
             elif f == 5:
                 r.i32()
-    prefix = d[e.data_offset: count_pos]
-    suffix = d[r.p: e.data_offset + e.serial_size]
+    prefix = d[e.data_offset : count_pos]
+    suffix = d[r.p : e.data_offset + e.serial_size]
 
     names = list(pk.names)
+
     def need(s):
         if s not in names:
             names.append(s)
+
     rows = bytearray(struct.pack("<i", len(notes)))
     for k, note in enumerate(notes):
         rn = f"R{k:04d}"
@@ -97,14 +100,14 @@ def pacenote_payload(pk: Package, notes: list[NoteOut]) -> tuple[bytes, list[str
 # --------------------------------------------------------------- baked data
 @dataclass
 class MeshOut:
-    vertices: np.ndarray       # (N,3) float, baked frame (x, up, y)
-    indices: np.ndarray        # (M,) uint32
-    material_ref: int          # raw package index (e.g. -4)
+    vertices: np.ndarray  # (N,3) float, baked frame (x, up, y)
+    indices: np.ndarray  # (M,) uint32
+    material_ref: int  # raw package index (e.g. -4)
     soft_pkg: tuple[int, int]  # raw FName pairs of the soft object path
     soft_asset: tuple[int, int]
-    soft_sub: bytes            # raw length-prefixed string bytes
-    extra: np.ndarray          # the 4 trailing floats
-    group: int = 8             # collision group key (base-game index lists)
+    soft_sub: bytes  # raw length-prefixed string bytes
+    extra: np.ndarray  # the 4 trailing floats
+    group: int = 8  # collision group key (base-game index lists)
 
 
 def read_baked_raw(pk: Package):
@@ -119,15 +122,20 @@ def read_baked_raw(pk: Package):
     meshes = []
     transform_bytes = None
     for _ in range(n):
-        verts = np.zeros((0, 3), np.float32); extra = np.zeros(0, np.float32)
-        idx = np.zeros(0, np.uint32); mat = 0; sp = (0, 0); sa = (0, 0); sub = struct.pack("<i", 0)
+        verts = np.zeros((0, 3), np.float32)
+        extra = np.zeros(0, np.float32)
+        idx = np.zeros(0, np.uint32)
+        mat = 0
+        sp = (0, 0)
+        sa = (0, 0)
+        sub = struct.pack("<i", 0)
         for f in r.header():
             if f == 0:
                 t0 = r.p
                 rot, tr, sc = B._transform(r)
                 if not (np.allclose(rot, (0, 0, 0, 1)) and np.allclose(tr, 0) and np.allclose(sc, 1)):
                     raise NotImplementedError("non-identity baked mesh transform")
-                transform_bytes = d[t0: r.p]
+                transform_bytes = d[t0 : r.p]
             elif f == 1:
                 verts = B._array(r, np.float32, 3).astype(np.float64)
             elif f == 2:
@@ -137,23 +145,26 @@ def read_baked_raw(pk: Package):
             elif f == 4:
                 mat = r.i32()
             elif f == 5:
-                sp = struct.unpack_from("<II", d, r.p); r.p += 8
-                sa = struct.unpack_from("<II", d, r.p); r.p += 8
+                sp = struct.unpack_from("<II", d, r.p)
+                r.p += 8
+                sa = struct.unpack_from("<II", d, r.p)
+                r.p += 8
                 n_sub = r.i32()
-                sub = d[r.p - 4: r.p + n_sub]          # raw length-prefixed bytes (no terminator)
+                sub = d[r.p - 4 : r.p + n_sub]  # raw length-prefixed bytes (no terminator)
                 r.p += n_sub
         meshes.append(MeshOut(verts, idx, mat, sp, sa, sub, extra))
-    tail = d[r.p: e.data_offset + e.serial_size]
+    tail = d[r.p : e.data_offset + e.serial_size]
     k = tail.find(struct.pack("<I", n))
     tail_prefix = tail[:k]
     table_len = 4 + 7 + 10 * (n - 1) if n else 4
-    tail_suffix = tail[k + table_len:]
-    head = d[e.data_offset: start_meshes]
+    tail_suffix = tail[k + table_len :]
+    head = d[e.data_offset : start_meshes]
     return meshes, head, transform_bytes, tail_prefix, tail_suffix
 
 
-def baked_payload(head: bytes, transform_bytes: bytes, meshes: list[MeshOut],
-                  tail_prefix: bytes, tail_suffix: bytes) -> bytes:
+def baked_payload(
+    head: bytes, transform_bytes: bytes, meshes: list[MeshOut], tail_prefix: bytes, tail_suffix: bytes
+) -> bytes:
     out = bytearray(head)
     out += struct.pack("<I", len(meshes))
     for m in meshes:
@@ -183,21 +194,21 @@ def baked_payload(head: bytes, transform_bytes: bytes, meshes: list[MeshOut],
 #   3 index lists                3 x TArray<{i32 key, i32 0, u16 hdr, TSet<{start,count}>}> + u32 0
 #     list 0 groups mesh indices, list 2 shape-entry indices, by collision key.
 SHAPE_SCHEMAS = {
-    0: {0: 24, 1: 24, 2: 4, 3: 4, 4: 4, 5: 4, 6: 8, 7: 1, 8: 1, 9: 1},   # box
-    1: {0: 24, 1: 4, 2: 4, 3: 8, 4: 1, 5: 1, 6: 1},                      # sphere
-    2: {0: 24, 1: 24, 2: 4, 3: 4, 4: 4, 5: 8, 6: 1, 7: 1, 8: 1},         # capsule
+    0: {0: 24, 1: 24, 2: 4, 3: 4, 4: 4, 5: 4, 6: 8, 7: 1, 8: 1, 9: 1},  # box
+    1: {0: 24, 1: 4, 2: 4, 3: 8, 4: 1, 5: 1, 6: 1},  # sphere
+    2: {0: 24, 1: 24, 2: 4, 3: 4, 4: 4, 5: 8, 6: 1, 7: 1, 8: 1},  # capsule
 }
 
 
 @dataclass
 class BakedFull:
-    top: bytes                 # top-level unversioned header bytes
+    top: bytes  # top-level unversioned header bytes
     transform_bytes: bytes
-    meshes: list               # MeshOut with .group set
-    mid: bytes                 # fields 1 and 2, verbatim
-    list0_hdr: list            # [(key, z1, hdr2)] in original order
-    rest: bytes                # lists 1, 2 and trailer, verbatim
-    covered: set = None        # mesh indices that list 0 references
+    meshes: list  # MeshOut with .group set
+    mid: bytes  # fields 1 and 2, verbatim
+    list0_hdr: list  # [(key, z1, hdr2)] in original order
+    rest: bytes  # lists 1, 2 and trailer, verbatim
+    covered: set = None  # mesh indices that list 0 references
 
 
 def _skip_shapes(r: Reader):
@@ -215,7 +226,8 @@ def _skip_shapes(r: Reader):
                         r.p += sch[g]
             elif f == 4:
                 r.p += 16
-                n_ = r.i32(); r.p += n_
+                n_ = r.i32()
+                r.p += n_
             else:
                 raise ValueError(f"unknown shape entry field {f}")
 
@@ -244,7 +256,7 @@ def read_baked_full(pk: Package) -> BakedFull:
     end = e.data_offset + e.serial_size
     r = Reader(d, e.data_offset)
     top_fields = r.header()
-    top = d[e.data_offset: r.p]
+    top = d[e.data_offset : r.p]
     if top_fields != [0, 1, 2, 3]:
         raise ValueError(f"unexpected BakedDataContainer layout {top_fields}")
     meshes, head, transform_bytes, _, _ = read_baked_raw(pk)
@@ -264,14 +276,15 @@ def read_baked_full(pk: Package) -> BakedFull:
                 r.i32()
             elif f == 5:
                 r.p += 16
-                n_ = r.i32(); r.p += n_
+                n_ = r.i32()
+                r.p += n_
     mid0 = r.p
     _skip_shapes(r)
     if r.u32() != 0:
         raise ValueError("BakedDataContainer field 2 is not empty")
-    mid = d[mid0: r.p]
+    mid = d[mid0 : r.p]
     l0 = _read_list(r)
-    rest = d[r.p: end]
+    rest = d[r.p : end]
     key_of = {}
     for key, _, _, ranges in l0:
         for a, b in ranges:
@@ -327,8 +340,11 @@ def baked_payload_full(bf: BakedFull, meshes: list[MeshOut]) -> bytes:
     i = 0
     while i < len(meshes):
         j = i
-        while j + 1 < len(meshes) and meshes[j + 1].group == meshes[i].group \
-                and meshes[j + 1].soft_sub == meshes[i].soft_sub:
+        while (
+            j + 1 < len(meshes)
+            and meshes[j + 1].group == meshes[i].group
+            and meshes[j + 1].soft_sub == meshes[i].soft_sub
+        ):
             j += 1
         by_key.setdefault(meshes[i].group, []).append((i, j - i + 1))
         i = j + 1
@@ -341,7 +357,7 @@ def baked_payload_full(bf: BakedFull, meshes: list[MeshOut]) -> bytes:
         out += struct.pack("<ii", k, z) + h + struct.pack("<ii", 0, len(runs))
         for a, b in runs:
             if a == 0:
-                out += b"\x80\x05\x01" + struct.pack("<i", b)        # start is zero: masked out
+                out += b"\x80\x05\x01" + struct.pack("<i", b)  # start is zero: masked out
             else:
                 out += b"\x00\x05" + struct.pack("<ii", a, b)
     out += bf.rest
@@ -373,7 +389,7 @@ def _skip_curve(r: Reader, vw: int, dbl: bool) -> tuple[list[int], bytes]:
             r.f32()
         elif f != 0:
             raise ValueError(f"unexpected FInterpCurve field {f}")
-    return h, r.d[start:r.p]
+    return h, r.d[start : r.p]
 
 
 def _hdr_for(indices: list[int], zeros=()) -> bytes:
@@ -386,7 +402,8 @@ def _hdr_for(indices: list[int], zeros=()) -> bytes:
     while i < len(idx):
         skip = idx[i] - prev
         while skip > 127:
-            frags.append([127, 0]); skip -= 127
+            frags.append([127, 0])
+            skip -= 127
         run = 1
         while i + run < len(idx) and idx[i + run] == idx[i] + run and run < 127:
             run += 1
@@ -397,7 +414,7 @@ def _hdr_for(indices: list[int], zeros=()) -> bytes:
         frags = [[0, 0]]
     zeros = set(zeros or ())
     out = b""
-    bits = []                                   # zero-mask bits, in value order of flagged fragments
+    bits = []  # zero-mask bits, in value order of flagged fragments
     pos = 0
     for k, (skip, run) in enumerate(frags):
         pos += skip
@@ -423,7 +440,7 @@ def _quat_from_dir(t: np.ndarray) -> np.ndarray:
     yaw = np.arctan2(t[1], t[0])
     pitch = np.arctan2(t[2], np.hypot(t[0], t[1]))
     cy, sy = np.cos(yaw / 2), np.sin(yaw / 2)
-    cp, sp = np.cos(-pitch / 2), np.sin(-pitch / 2)   # UE pitch: rotation about Y, nose-up positive
+    cp, sp = np.cos(-pitch / 2), np.sin(-pitch / 2)  # UE pitch: rotation about Y, nose-up positive
     # q = qYaw * qPitch
     return np.array([-sy * sp, cy * sp, sy * cp, cy * cp])
 
@@ -443,8 +460,8 @@ def spline_payload(pk: Package, export_name: str, pts_cm: np.ndarray) -> bytes:
     curve_meta = [_skip_curve(r, 3, True), _skip_curve(r, 4, True), _skip_curve(r, 3, True)]
     if has_reparam:
         curve_meta.append(_skip_curve(r, 1, False))
-    prefix = d[e.data_offset: curves_start]
-    suffix = d[r.p: e.data_offset + e.serial_size]
+    prefix = d[e.data_offset : curves_start]
+    suffix = d[r.p : e.data_offset + e.serial_size]
 
     P = np.asarray(pts_cm, float)
     n = len(P)
@@ -454,7 +471,8 @@ def spline_payload(pk: Package, export_name: str, pts_cm: np.ndarray) -> bytes:
     T[-1] = P[-1] - P[-2]
 
     out = bytearray(prefix)
-    out += _hdr(4 if has_reparam else 3)            # FSplineCurves: Position, Rotation, Scale[, Reparam]
+    out += _hdr(4 if has_reparam else 3)  # FSplineCurves: Position, Rotation, Scale[, Reparam]
+
     def curve_head(k):
         h, _ = curve_meta[k]
         return _hdr_for(sorted(set(h) | {0}))
@@ -493,10 +511,13 @@ def spline_payload(pk: Package, export_name: str, pts_cm: np.ndarray) -> bytes:
         for k in range(steps):
             t = k / steps
             if k:
-                h00 = 2 * t**3 - 3 * t**2 + 1; h10 = t**3 - 2 * t**2 + t
-                h01 = -2 * t**3 + 3 * t**2; h11 = t**3 - t**2
+                h00 = 2 * t**3 - 3 * t**2 + 1
+                h10 = t**3 - 2 * t**2 + t
+                h01 = -2 * t**3 + 3 * t**2
+                h11 = t**3 - t**2
                 cur = h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1
-                dist += float(np.linalg.norm(cur - prev)); prev = cur
+                dist += float(np.linalg.norm(cur - prev))
+                prev = cur
             entries.append((dist, i + t))
         dist += float(np.linalg.norm(p1 - prev))
     entries.append((dist, float(n - 1)))

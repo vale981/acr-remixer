@@ -12,6 +12,7 @@ buffer. Index buffers are serialised as `u32 b32Bit` + bulk array
 LOD's positions is clipped by triangle centroid, so the depth prepass and
 shadows match what is drawn.
 """
+
 from __future__ import annotations
 
 import struct
@@ -24,9 +25,9 @@ from ..extract.zen import Package
 
 @dataclass
 class Lod:
-    pos_off: int                 # offset of the vertex data inside the export
+    pos_off: int  # offset of the vertex data inside the export
     n: int
-    index_bufs: list             # [(data_offset, byte_count, width)]
+    index_bufs: list  # [(data_offset, byte_count, width)]
 
 
 def find_lods(b: bytes) -> list[Lod]:
@@ -39,8 +40,14 @@ def find_lods(b: bytes) -> list[Lod]:
         st, n, es, n2 = struct.unpack_from("<IIII", b, i)
         # LODs shrink but never below a few dozen vertices; tiny matches are
         # coincidences inside tangent/UV data
-        if st == 12 and es == 12 and n == n2 and (3 if not pos else 24) <= n < 20_000_000 \
-                and i + 16 + 12 * n <= len(b) and (not pos or n <= pos[-1][1]):
+        if (
+            st == 12
+            and es == 12
+            and n == n2
+            and (3 if not pos else 24) <= n < 20_000_000
+            and i + 16 + 12 * n <= len(b)
+            and (not pos or n <= pos[-1][1])
+        ):
             pos.append((i + 16, n))
             i += 16 + 12 * n
             continue
@@ -51,7 +58,7 @@ def find_lods(b: bytes) -> list[Lod]:
         j = p0 + 12 * n
         bufs = []
         while True:
-            q = b.find(b"\x01\x00\x00\x00", j + 4, end - 8)      # elem_size == 1
+            q = b.find(b"\x01\x00\x00\x00", j + 4, end - 8)  # elem_size == 1
             if q < 0:
                 break
             j = q - 4
@@ -84,7 +91,7 @@ def clip_mesh_payload(b: bytes, keep_fn) -> tuple[bytes, dict]:
             tri = np.frombuffer(b, dt, cnt // w, off).reshape(-1, 3).copy()
             keep = np.asarray(keep_fn(P[tri].mean(1)), bool)
             tri[~keep] = tri[~keep][:, :1]
-            out[off: off + cnt] = tri.astype(dt).tobytes()
+            out[off : off + cnt] = tri.astype(dt).tobytes()
             stats["bufs"] += 1
             stats["tris"] += len(tri)
             stats["dropped"] += int((~keep).sum())
@@ -103,7 +110,7 @@ def displace_payload(b: bytes, dz_fn) -> tuple[bytes, float]:
             continue
         mx = max(mx, float(np.abs(dz).max()))
         P[:, 2] += dz
-        out[lod.pos_off: lod.pos_off + 12 * lod.n] = P.astype("<f4").tobytes()
+        out[lod.pos_off : lod.pos_off + 12 * lod.n] = P.astype("<f4").tobytes()
     return bytes(out), mx
 
 
@@ -112,6 +119,7 @@ def warp_payload(b: bytes, fn) -> tuple[bytes, float]:
     positions (N,3). The mesh bounds (FBoxSphereBounds copies) grow to contain
     the moved vertices. Returns the payload and the largest move (cm)."""
     from .hlod import _bounds_offsets
+
     out = bytearray(b)
     mx = 0.0
     lods = find_lods(b)
@@ -123,7 +131,7 @@ def warp_payload(b: bytes, fn) -> tuple[bytes, float]:
         if not len(d) or not np.any(d):
             continue
         mx = max(mx, float(d.max()))
-        out[lod.pos_off: lod.pos_off + 12 * lod.n] = Q.astype("<f4").tobytes()
+        out[lod.pos_off : lod.pos_off + 12 * lod.n] = Q.astype("<f4").tobytes()
         if li == 0:
             lo0, hi0, lo1, hi1 = P.min(0), P.max(0), Q.min(0), Q.max(0)
     if lo0 is not None and lods:

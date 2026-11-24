@@ -14,6 +14,7 @@ A cell of a cooked WP level is, in the main level package:
 and the cell package itself, whose content is found by its package name.
 A copy gets a new ID, three new exports and a renamed copy of the package.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -45,15 +46,21 @@ def _find(pk: Package, cell_id: str) -> tuple[int, int, int]:
     return stream, cell, data
 
 
-def duplicate_cells(main: bytes, level_path: str, copies: list[tuple[str, str]], grid: bool = True,
-                    same_package: bool = False, new_guid: bool = True) -> bytes:
+def duplicate_cells(
+    main: bytes,
+    level_path: str,
+    copies: list[tuple[str, str]],
+    grid: bool = True,
+    same_package: bool = False,
+    new_guid: bool = True,
+) -> bytes:
     """Main level with extra cells: copies = [(source cell ID, new ID)].
     Debugging: grid=False leaves the cells out of the streaming grid;
     same_package=True streams the source cell's package (no copy needed)."""
     pk = Package(main)
     n0 = len(pk.exports)
     adds, extra = [], []
-    new_refs = {}                                  # source cell export -> new cell export
+    new_refs = {}  # source cell export -> new cell export
     for k, (src, new) in enumerate(copies):
         s, c, dd = _find(pk, src)
         ns, nc, nd = n0 + 3 * k, n0 + 3 * k + 1, n0 + 3 * k + 2
@@ -102,7 +109,7 @@ def duplicate_cells(main: bytes, level_path: str, copies: list[tuple[str, str]],
         struct.pack_into("<i", b, 8, ns + 1)
         struct.pack_into("<i", b, len(b) - 8, n0 + 3 * k + 2 + 1)
         if new_guid:
-            b[len(b) - 24: len(b) - 8] = hashlib.md5(new.encode()).digest()
+            b[len(b) - 24 : len(b) - 8] = hashlib.md5(new.encode()).digest()
         payloads[nc] = bytes(b)
     # streaming grid: the copy sits in every layer cell its source sits in
     hi = next(i for i, e in enumerate(pk.exports) if e.name.startswith("WorldPartitionRuntimeSpatialHash"))
@@ -132,4 +139,5 @@ def copy_cell_package(data: bytes, level_path: str, src: str, new: str) -> bytes
         if path_re.match(n):
             return path_re.sub(new_pkg, n)
         return new if n == src else n
+
     return rename_package(data, ren)

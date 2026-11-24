@@ -16,6 +16,7 @@ Layout reverse-engineered from cooked data (UE 5.6, unversioned):
       [4] UDMPhysicalMaterial* (package index into imports)
       [5] FSoftObjectPath    source actor, e.g. ...:PersistentLevel.<Level>Road000
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -40,10 +41,13 @@ class BakedMesh:
     def world_vertices(self) -> np.ndarray:
         """Vertices with the stored transform applied (UE quat x,y,z,w)."""
         x, y, z, w = self.rotation
-        R = np.array([
-            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+        R = np.array(
+            [
+                [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+            ]
+        )
         return (self.vertices * np.array(self.scale)) @ R.T + np.array(self.translation)
 
 

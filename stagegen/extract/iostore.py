@@ -1,4 +1,4 @@
-﻿# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
 # SPDX-FileCopyrightText: 2026 iceone88
 # SPDX-License-Identifier: GPL-3.0-or-later AND MIT
 
@@ -8,6 +8,7 @@ Only what acr-stagegen needs: list files via the directory index and read a
 chunk's bytes (Oodle-compressed blocks are decoded with a locally installed
 oo2core DLL through ctypes). Never writes to the game folder.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -37,17 +38,29 @@ OODLE_CANDIDATES = [
 @lru_cache(maxsize=1)
 def _oodle():
     cands = OODLE_CANDIDATES
-    if os.environ.get("ACR_OODLE_DLL") == "shim":          # test the open-source path only
+    if os.environ.get("ACR_OODLE_DLL") == "shim":  # test the open-source path only
         cands = [p for p in OODLE_CANDIDATES if p.endswith("oo2core_shim.dll")]
     for p in cands:
         if p and os.path.isfile(p):
             dll = ctypes.WinDLL(p)
             f = dll.OodleLZ_Decompress
             f.restype = ctypes.c_int64
-            f.argtypes = [ctypes.c_void_p, ctypes.c_int64, ctypes.c_void_p, ctypes.c_int64,
-                          ctypes.c_int, ctypes.c_int, ctypes.c_int,
-                          ctypes.c_void_p, ctypes.c_int64, ctypes.c_void_p, ctypes.c_void_p,
-                          ctypes.c_void_p, ctypes.c_int64, ctypes.c_int]
+            f.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_int64,
+                ctypes.c_void_p,
+                ctypes.c_int64,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.c_int64,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_int64,
+                ctypes.c_int,
+            ]
             return f
     raise RuntimeError("No Oodle decompressor found (build oodle_shim or set ACR_OODLE_DLL)")
 
@@ -81,39 +94,49 @@ class Container:
         if d[:16] != MAGIC:
             raise ValueError("not a utoc")
         (self.version,) = struct.unpack_from("<B", d, 16)
-        (hsize, n_entries, n_blocks, block_entry_size, n_methods, method_len,
-         self.block_size, dir_size, self.partition_count) = struct.unpack_from("<9I", d, 20)
-        self.container_id, = struct.unpack_from("<Q", d, 56)
+        (
+            hsize,
+            n_entries,
+            n_blocks,
+            block_entry_size,
+            n_methods,
+            method_len,
+            self.block_size,
+            dir_size,
+            self.partition_count,
+        ) = struct.unpack_from("<9I", d, 20)
+        (self.container_id,) = struct.unpack_from("<Q", d, 56)
         self.flags = d[80]
-        n_seeds, = struct.unpack_from("<I", d, 84)
-        self.partition_size, = struct.unpack_from("<Q", d, 88)
-        n_noperfect, = struct.unpack_from("<I", d, 96)
+        (n_seeds,) = struct.unpack_from("<I", d, 84)
+        (self.partition_size,) = struct.unpack_from("<Q", d, 88)
+        (n_noperfect,) = struct.unpack_from("<I", d, 96)
         p = hsize
-        self.chunk_ids = [d[p + 12 * i: p + 12 * i + 12] for i in range(n_entries)]
+        self.chunk_ids = [d[p + 12 * i : p + 12 * i + 12] for i in range(n_entries)]
         p += 12 * n_entries
         self.offlen = []
         for i in range(n_entries):
-            e = d[p + 10 * i: p + 10 * i + 10]
+            e = d[p + 10 * i : p + 10 * i + 10]
             self.offlen.append((_u40be(e[:5]), _u40be(e[5:])))
         p += 10 * n_entries
         p += 4 * n_seeds + 4 * n_noperfect
         self.blocks = []
         for i in range(n_blocks):
-            e = d[p + 12 * i: p + 12 * i + 12]
+            e = d[p + 12 * i : p + 12 * i + 12]
             off = int.from_bytes(e[0:5], "little")
             cs = int.from_bytes(e[5:8], "little")
             us = int.from_bytes(e[8:11], "little")
             self.blocks.append(Block(off, cs, us, e[11]))
         p += block_entry_size * n_blocks
-        self.methods = ["None"] + [d[p + method_len * i: p + method_len * (i + 1)].split(b"\0")[0].decode()
-                                   for i in range(n_methods)]
+        self.methods = ["None"] + [
+            d[p + method_len * i : p + method_len * (i + 1)].split(b"\0")[0].decode() for i in range(n_methods)
+        ]
         p += method_len * n_methods
         if self.flags & 4:  # signed
-            hs, = struct.unpack_from("<i", d, p)
+            (hs,) = struct.unpack_from("<i", d, p)
             p += 4 + 2 * hs + 20 * n_blocks
         self.files: dict[str, int] = {}
         if self.flags & 8 and dir_size:
-            self._read_dir(d[p: p + dir_size])
+            self._read_dir(d[p : p + dir_size])
         self.chunk_index = {cid: i for i, cid in enumerate(self.chunk_ids)}
 
     def _read_dir(self, d: bytes):
@@ -121,19 +144,27 @@ class Container:
 
         def fstring():
             nonlocal p
-            n, = struct.unpack_from("<i", d, p); p += 4
+            (n,) = struct.unpack_from("<i", d, p)
+            p += 4
             if n >= 0:
-                s = d[p: p + n].rstrip(b"\0").decode("latin-1"); p += n
+                s = d[p : p + n].rstrip(b"\0").decode("latin-1")
+                p += n
             else:
-                s = d[p: p - 2 * n].decode("utf-16-le").rstrip("\0"); p += -2 * n
+                s = d[p : p - 2 * n].decode("utf-16-le").rstrip("\0")
+                p += -2 * n
             return s
 
         mount = fstring()
-        nd, = struct.unpack_from("<I", d, p); p += 4
-        dirs = [struct.unpack_from("<4I", d, p + 16 * i) for i in range(nd)]; p += 16 * nd
-        nf, = struct.unpack_from("<I", d, p); p += 4
-        files = [struct.unpack_from("<3I", d, p + 12 * i) for i in range(nf)]; p += 12 * nf
-        ns, = struct.unpack_from("<I", d, p); p += 4
+        (nd,) = struct.unpack_from("<I", d, p)
+        p += 4
+        dirs = [struct.unpack_from("<4I", d, p + 16 * i) for i in range(nd)]
+        p += 16 * nd
+        (nf,) = struct.unpack_from("<I", d, p)
+        p += 4
+        files = [struct.unpack_from("<3I", d, p + 12 * i) for i in range(nf)]
+        p += 12 * nf
+        (ns,) = struct.unpack_from("<I", d, p)
+        p += 4
         strings = [fstring() for _ in range(ns)]
         NONE = 0xFFFFFFFF
         stack = [(0, mount.lstrip("/").replace("../../../", ""))]
@@ -170,9 +201,7 @@ class Container:
                     try:
                         decoded = zlib.decompress(raw)
                     except zlib.error as exc:
-                        raise RuntimeError(
-                            f"Zlib decompress failed for block {bi} in {self.utoc}: {exc}"
-                        ) from exc
+                        raise RuntimeError(f"Zlib decompress failed for block {bi} in {self.utoc}: {exc}") from exc
                     if len(decoded) != b.usize:
                         raise RuntimeError(
                             f"Zlib decompressed-size mismatch for block {bi} in {self.utoc} "
@@ -182,20 +211,17 @@ class Container:
                     try:
                         decoded = zlib.decompress(raw, wbits=16 + zlib.MAX_WBITS)
                     except zlib.error as exc:
-                        raise RuntimeError(
-                            f"Gzip decompress failed for block {bi} in {self.utoc}: {exc}"
-                        ) from exc
+                        raise RuntimeError(f"Gzip decompress failed for block {bi} in {self.utoc}: {exc}") from exc
                 else:
                     raise RuntimeError(f"unsupported compression {m}")
                 if len(decoded) != b.usize:
                     raise RuntimeError(
-                        f"decompressed-size mismatch for block {bi} in {self.utoc} "
-                        f"({len(decoded)} != {b.usize})"
+                        f"decompressed-size mismatch for block {bi} in {self.utoc} ({len(decoded)} != {b.usize})"
                     )
                 parts.append(decoded)
         data = b"".join(parts)
         start = off - first * bs
-        return data[start: start + length]
+        return data[start : start + length]
 
     def read(self, path: str) -> bytes:
         return self.read_entry(self.files[path])
@@ -208,8 +234,11 @@ class GameFS:
         paths = sorted(glob.glob(os.path.join(paks_dir, "*.utoc")))
         if include_mods:
             # never read our own generated containers back as source data
-            paths += sorted(p for p in glob.glob(os.path.join(paks_dir, "~mods", "*.utoc"))
-                            if "_Stagegen_" not in os.path.basename(p))
+            paths += sorted(
+                p
+                for p in glob.glob(os.path.join(paks_dir, "~mods", "*.utoc"))
+                if "_Stagegen_" not in os.path.basename(p)
+            )
         self.containers = [Container(p) for p in paths]
         self.index: dict[str, tuple[Container, int]] = {}
         self.by_chunk: dict[bytes, tuple[Container, int]] = {}

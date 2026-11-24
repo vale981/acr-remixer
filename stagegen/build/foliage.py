@@ -9,6 +9,7 @@ FMatrix (16 doubles, 128 bytes each): `u32 128, i32 count, count*128 bytes`.
 Hiding = zero scale (rows 0-2 zeroed, translation kept), so the count, the
 cluster tree and all bounds stay valid.
 """
+
 from __future__ import annotations
 
 import struct
@@ -68,7 +69,7 @@ def _box_offsets(b: bytes, limit: int, lo, hi, tol: float):
         with np.errstate(invalid="ignore"):
             c0 = np.flatnonzero(np.abs(arr[: n - 5] - want[0]) < tol)
         for i in c0:
-            if np.all(np.abs(arr[i: i + 6] - want) < tol):
+            if np.all(np.abs(arr[i : i + 6] - want) < tol):
                 out.append(a + 8 * int(i))
     return out
 
@@ -91,7 +92,7 @@ def move_hism(b: bytes, root_cm, place) -> tuple[bytes, dict]:
     keep, NW, yaw = place(W, source_yaw)
     keep = np.asarray(keep, bool)
     c, s = np.cos(yaw), np.sin(yaw)
-    for r in range(3):                                   # rows are the scaled axes: A' = A R^T
+    for r in range(3):  # rows are the scaled axes: A' = A R^T
         x, y = M[:, r, 0].copy(), M[:, r, 1].copy()
         M[:, r, 0] = c * x - s * y
         M[:, r, 1] = s * x + c * y
@@ -99,20 +100,20 @@ def move_hism(b: bytes, root_cm, place) -> tuple[bytes, dict]:
     M[:, 3, :3] = NW * 100 - root
     M[~keep, :3, :] = 0.0
     out = bytearray(b)
-    out[off: off + 128 * n] = M.astype("<f8").tobytes()
+    out[off : off + 128 * n] = M.astype("<f8").tobytes()
     st = {"n": n, "kept": int(keep.sum()), "nodes": 0, "boxes": 0}
     newP = M[:, 3, :3]
     # instance bounds box (FBox, local) in the properties: contains every
     # instance, a mesh-sized margin around them
     fb = _instance_box(b, off - 8, oldP)
     tree = _cluster_tree(b, off + 128 * n, n)
-    O = np.zeros(3)                                       # cluster boxes are relative to this origin
+    O = np.zeros(3)  # cluster boxes are relative to this origin
     if tree is not None and fb is not None:
         t0, _ = tree
         r_lo = np.array(struct.unpack_from("<3f", b, t0), np.float64)
         r_hi = np.array(struct.unpack_from("<3f", b, t0 + 16), np.float64)
         O = (fb[0] + fb[1]) / 2 - (r_lo + r_hi) / 2
-        if np.linalg.norm(O) < 50:                        # same frame (float noise)
+        if np.linalg.norm(O) < 50:  # same frame (float noise)
             O = np.zeros(3)
     new_lo = new_hi = None
     if tree is not None:
@@ -124,18 +125,18 @@ def move_hism(b: bytes, root_cm, place) -> tuple[bytes, dict]:
             fi, li = struct.unpack_from("<ii", b, p + 32)
             if not (0 <= fi <= li < n):
                 continue
-            o_lo, o_hi = oldP[fi:li + 1].min(0) - O, oldP[fi:li + 1].max(0) - O
+            o_lo, o_hi = oldP[fi : li + 1].min(0) - O, oldP[fi : li + 1].max(0) - O
             mg = np.maximum(np.maximum(o_lo - lo, hi - o_hi), 0.0)
-            mg[:2] = mg[:2].max()                        # rotated meshes: symmetric in xy
-            n_lo = newP[fi:li + 1].min(0) - O - mg
-            n_hi = newP[fi:li + 1].max(0) - O + mg
+            mg[:2] = mg[:2].max()  # rotated meshes: symmetric in xy
+            n_lo = newP[fi : li + 1].min(0) - O - mg
+            n_hi = newP[fi : li + 1].max(0) - O + mg
             struct.pack_into("<3f", out, p, *n_lo)
             struct.pack_into("<3f", out, p + 16, *n_hi)
             st["nodes"] += 1
             if q == 0:
                 new_lo, new_hi = n_lo + O, n_hi + O
     if fb is not None:
-        if new_lo is None:                               # no tree: grow the box with the instances
+        if new_lo is None:  # no tree: grow the box with the instances
             mg = np.maximum(np.maximum(oldP.min(0) - fb[0], fb[1] - oldP.max(0)), 0.0)
             mg[:2] = mg[:2].max()
             new_lo, new_hi = newP.min(0) - mg, newP.max(0) + mg
@@ -171,10 +172,16 @@ def _instance_box(b: bytes, limit: int, P):
         with np.errstate(invalid="ignore"):
             c0 = np.flatnonzero((arr[: n - 5] <= lo[0] + 1) & (arr[: n - 5] >= lo[0] - 20000))
         for i in c0:
-            v = arr[i: i + 6]
+            v = arr[i : i + 6]
             k = a + 8 * int(i)
-            if np.all(v[:3] <= lo + 1) and np.all(v[:3] >= lo - 5000) and np.all(v[3:] >= hi - 1) \
-                    and np.all(v[3:] <= hi + 5000) and k + 48 < len(b) and b[k + 48] == 1:   # FBox.IsValid
+            if (
+                np.all(v[:3] <= lo + 1)
+                and np.all(v[:3] >= lo - 5000)
+                and np.all(v[3:] >= hi - 1)
+                and np.all(v[3:] <= hi + 5000)
+                and k + 48 < len(b)
+                and b[k + 48] == 1
+            ):  # FBox.IsValid
                 return v[:3].copy(), v[3:].copy()
     return None
 
@@ -202,5 +209,5 @@ def hide_instances(b: bytes, mask=None) -> tuple[bytes, int]:
     m = np.ones(n, bool) if mask is None else np.asarray(mask, bool)
     M[m, :3, :] = 0.0
     out = bytearray(b)
-    out[off: off + 128 * n] = M.astype("<f8").tobytes()
+    out[off : off + 128 * n] = M.astype("<f8").tobytes()
     return bytes(out), int(m.sum())

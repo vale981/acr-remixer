@@ -1,12 +1,13 @@
-﻿# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
 # SPDX-FileCopyrightText: 2026 iceone88
 # SPDX-License-Identifier: GPL-3.0-or-later AND MIT
 
 """Beam search that chains segments (via connectors) into a new stage layout."""
+
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -19,44 +20,44 @@ from .segments import end_states
 @dataclass
 class SearchConfig:
     target_length: float = 10_000.0
-    length_tolerance: float = 0.08      # finish within Â±8 %
+    length_tolerance: float = 0.08  # finish within Â±8 %
     beam_width: int = 48
-    branch_per_state: int = 24          # best expansions kept per parent
+    branch_per_state: int = 24  # best expansions kept per parent
     yaw_offsets_deg: tuple = (-25, -12, 0, 12, 25)
     allow_reversed: bool = True
-    corridor_half_width: float = 35.0   # scanned corridor each side of the road
+    corridor_half_width: float = 35.0  # scanned corridor each side of the road
     max_grade_mismatch: float = 0.06
     max_width_mismatch: float = 1.5
     max_connector_grade: float = 0.14
     max_elevation_range: float = 450.0
     same_surface_only: bool = True
     seed: int = 0
-    variety: float = 12.0               # random per-segment preference; bigger = more seed-to-seed variation
+    variety: float = 12.0  # random per-segment preference; bigger = more seed-to-seed variation
     step: float = 2.0
-    coarse_step: float = 10.0            # spacing used for overlap tests
-    start_segment: str | None = None     # force this segment (forwards) as the opening piece
-    end_segment: str | None = None       # force this segment (forwards) as the closing piece
-    novelty: float = 0.0                 # penalty for re-using the source order (seg k+1 straight after seg k, both forwards)
+    coarse_step: float = 10.0  # spacing used for overlap tests
+    start_segment: str | None = None  # force this segment (forwards) as the opening piece
+    end_segment: str | None = None  # force this segment (forwards) as the closing piece
+    novelty: float = 0.0  # penalty for re-using the source order (seg k+1 straight after seg k, both forwards)
 
 
 @dataclass
 class State:
     parent: "State | None"
-    pieces: list[Piece]                 # pieces added by this step (connector, segment)
+    pieces: list[Piece]  # pieces added by this step (connector, segment)
     end: EndState
     length: float
     used: frozenset
-    coarse: np.ndarray                  # (M, 2) xy points added by this step
+    coarse: np.ndarray  # (M, 2) xy points added by this step
     zmin: float
     zmax: float
     penalty: float
-    synthetic: float                    # total connector length so far
+    synthetic: float  # total connector length so far
     last_stage: str
     surface: str
-    children_tail_skip: int = 0         # coarse points at our tail to skip in overlap test
+    children_tail_skip: int = 0  # coarse points at our tail to skip in overlap test
     max_geometry_mismatch: float = 0.0  # worst normalized connector/join constraint ratio
-    geometry_penalty: float = 0.0        # sum of squared normalized geometry ratios
-    preference_penalty: float = 0.0      # source variety/novelty preferences only
+    geometry_penalty: float = 0.0  # sum of squared normalized geometry ratios
+    preference_penalty: float = 0.0  # source variety/novelty preferences only
 
     def chain(self):
         s = self
@@ -112,27 +113,38 @@ def _place(seg: Segment, rev: bool, start_src: EndState, at: EndState, cfg: Sear
 
 def _initial_states(segments: list[Segment], cfg: SearchConfig) -> list[State]:
     out = []
-    origin = EndState(np.zeros(3), 0.0, 0.0, 0.0)
     for seg in segments:
         if cfg.start_segment and seg.id != cfg.start_segment:
             continue
-        for rev in ((False, True) if cfg.allow_reversed and not cfg.start_segment else (False,)):
+        for rev in (False, True) if cfg.allow_reversed and not cfg.start_segment else (False,):
             s0, e0 = end_states(seg, rev, cfg.step)
             pts, yaw, trans = _place(seg, rev, s0, EndState(np.zeros(3), 0.0, s0.grade, s0.width), cfg)
             _, e = end_states(seg, rev, cfg.step)
             R = rot_z(yaw)
             end = EndState(R @ e.pos + trans, e.yaw + yaw, e.grade, e.width)
-            piece = Piece("segment", pts, seg.widths(rev), seg.id, rev, yaw, trans,
-                          seg.pacenotes(rev) or [])
-            out.append(State(None, [piece], end, seg.length, frozenset([seg.id]),
-                             _coarse(pts, cfg.step, cfg.coarse_step),
-                             float(pts[:, 2].min()), float(pts[:, 2].max()),
-                             0.0, 0.0, seg.stage.name, seg.stage.surface))
+            piece = Piece("segment", pts, seg.widths(rev), seg.id, rev, yaw, trans, seg.pacenotes(rev) or [])
+            out.append(
+                State(
+                    None,
+                    [piece],
+                    end,
+                    seg.length,
+                    frozenset([seg.id]),
+                    _coarse(pts, cfg.step, cfg.coarse_step),
+                    float(pts[:, 2].min()),
+                    float(pts[:, 2].max()),
+                    0.0,
+                    0.0,
+                    seg.stage.name,
+                    seg.stage.surface,
+                )
+            )
     return out
 
 
-def _expand(st: State, segments: list[Segment], cfg: SearchConfig, rng: random.Random,
-            bias: dict[str, float]) -> list[State]:
+def _expand(
+    st: State, segments: list[Segment], cfg: SearchConfig, rng: random.Random, bias: dict[str, float]
+) -> list[State]:
     clearance = 2 * cfg.corridor_half_width
     joint_skip = int(np.ceil(clearance * 1.2 / cfg.coarse_step))
     kids: list[State] = []
@@ -142,7 +154,7 @@ def _expand(st: State, segments: list[Segment], cfg: SearchConfig, rng: random.R
         if cfg.same_surface_only and seg.stage.surface != st.surface:
             continue
         is_end = seg.id == cfg.end_segment
-        for rev in ((False, True) if cfg.allow_reversed and not is_end else (False,)):
+        for rev in (False, True) if cfg.allow_reversed and not is_end else (False,):
             s0, e0 = end_states(seg, rev, cfg.step)
             dg = abs(s0.grade - st.end.grade)
             dw = abs(s0.width - st.end.width)
@@ -159,8 +171,7 @@ def _expand(st: State, segments: list[Segment], cfg: SearchConfig, rng: random.R
                 zmax = max(st.zmax, cpts[:, 2].max(), spts[:, 2].max())
                 if zmax - zmin > cfg.max_elevation_range:
                     continue
-                new_xy = np.vstack([_coarse(cpts, cfg.step, cfg.coarse_step),
-                                    _coarse(spts, cfg.step, cfg.coarse_step)])
+                new_xy = np.vstack([_coarse(cpts, cfg.step, cfg.coarse_step), _coarse(spts, cfg.step, cfg.coarse_step)])
                 if _overlaps(st, new_xy, clearance, joint_skip):
                     continue
                 R = rot_z(yaw)
@@ -174,23 +185,36 @@ def _expand(st: State, segments: list[Segment], cfg: SearchConfig, rng: random.R
                 )
                 step_geometry = float(sum(q * q for q in ratios))
                 worst_geometry = float(max(ratios))
-                step_preference = ((3.0 if seg.stage.name == st.last_stage else 0.0)
-                                   + (cfg.novelty if _follows_source(st, seg, rev) else 0.0)
-                                   + bias[seg.id])
+                step_preference = (
+                    (3.0 if seg.stage.name == st.last_stage else 0.0)
+                    + (cfg.novelty if _follows_source(st, seg, rev) else 0.0)
+                    + bias[seg.id]
+                )
                 # Keep the historic scalar for backwards-compatible inspection.
-                penalty = (st.penalty
-                           + 40 * dg / max(cfg.max_grade_mismatch, 1e-12)
-                           + 6 * abs(off) / max(yaw_limit, 1e-12)
-                           + 4 * dw
-                           + step_preference)
+                penalty = (
+                    st.penalty
+                    + 40 * dg / max(cfg.max_grade_mismatch, 1e-12)
+                    + 6 * abs(off) / max(yaw_limit, 1e-12)
+                    + 4 * dw
+                    + step_preference
+                )
                 kid = State(
                     st,
-                    [Piece("connector", cpts, cw),
-                     Piece("segment", spts, seg.widths(rev), seg.id, rev, yaw, trans,
-                           seg.pacenotes(rev) or [])],
-                    end, st.length + L + seg.length, st.used | {seg.id}, new_xy,
-                    float(zmin), float(zmax), penalty, st.synthetic + L,
-                    seg.stage.name, st.surface)
+                    [
+                        Piece("connector", cpts, cw),
+                        Piece("segment", spts, seg.widths(rev), seg.id, rev, yaw, trans, seg.pacenotes(rev) or []),
+                    ],
+                    end,
+                    st.length + L + seg.length,
+                    st.used | {seg.id},
+                    new_xy,
+                    float(zmin),
+                    float(zmax),
+                    penalty,
+                    st.synthetic + L,
+                    seg.stage.name,
+                    st.surface,
+                )
                 kid.max_geometry_mismatch = max(st.max_geometry_mismatch, worst_geometry)
                 kid.geometry_penalty = st.geometry_penalty + step_geometry
                 kid.preference_penalty = st.preference_penalty + step_preference

@@ -1,4 +1,4 @@
-﻿# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Build SourceStage objects from the game's own data.
@@ -10,6 +10,7 @@ Per level:
 
 Levels are read straight from the IoStore containers; nothing is written.
 """
+
 from __future__ import annotations
 
 import os
@@ -29,8 +30,15 @@ from .zen import Package
 DEFAULT_PAKS = os.path.join(os.path.dirname(__file__), "..", "..", "..", "acr", "Content", "Paks")
 
 
-REGION_SURFACE = {"wales": "gravel", "greece": "gravel", "sweden": "snow", "livigno": "snow",
-                  "alsace": "tarmac", "montecarlo": "tarmac", "wrcges": "tarmac"}
+REGION_SURFACE = {
+    "wales": "gravel",
+    "greece": "gravel",
+    "sweden": "snow",
+    "livigno": "snow",
+    "alsace": "tarmac",
+    "montecarlo": "tarmac",
+    "wrcges": "tarmac",
+}
 
 
 def _surface(pk: Package, level: str = "") -> str:
@@ -49,11 +57,12 @@ def _pacenote_tables(pk: Package) -> list[str]:
 
 
 def _game_path(game_ref: str) -> str:
-    return "acr/Content/" + game_ref[len("/Game/"):] + ".uasset"
+    return "acr/Content/" + game_ref[len("/Game/") :] + ".uasset"
 
 
-def load_level(fs: GameFS, level_path: str, step: float = 2.0, name: str | None = None,
-               location: str | None = None) -> SourceStage:
+def load_level(
+    fs: GameFS, level_path: str, step: float = 2.0, name: str | None = None, location: str | None = None
+) -> SourceStage:
     pk = Package(fs.read(level_path))
     sp = level_splines(pk)
     if "CenterSpline" not in sp:
@@ -65,7 +74,7 @@ def load_level(fs: GameFS, level_path: str, step: float = 2.0, name: str | None 
                 continue
             try:
                 sp = level_splines(Package(d))
-            except Exception:      # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 continue
             if "CenterSpline" in sp:
                 break
@@ -87,8 +96,11 @@ def load_level(fs: GameFS, level_path: str, step: float = 2.0, name: str | None 
         # Base game: one table per variant, named after the stage without the
         # region/stage-number prefix (WalesS3HafrenNorth -> HafrenNorth).
         short = re.sub(r"^[A-Za-z]+?S\d+", "", lvl) or lvl
-        tables = ["/Game/" + p[len("acr/Content/"):-len(".uasset")]
-                  for p in fs.find(f"DT_Pacenote{short}FullForward") if p.endswith(".uasset")]
+        tables = [
+            "/Game/" + p[len("acr/Content/") : -len(".uasset")]
+            for p in fs.find(f"DT_Pacenote{short}FullForward")
+            if p.endswith(".uasset")
+        ]
     for t in tables:
         path = _game_path(t)
         if path in fs.index:
@@ -121,6 +133,7 @@ def _tables_for(fs: GameFS, lvl: str) -> dict[str, str]:
 
 def _turn_agreement(points: np.ndarray, notes: list[Pacenote], step: float) -> float:
     from ..geometry import curvature
+
     s = arclength(points)
     k = curvature(points, s, window=9)
     good = bad = 0
@@ -128,10 +141,10 @@ def _turn_agreement(points: np.ndarray, notes: list[Pacenote], step: float) -> f
         side = "Left" if "Left" in n.text else "Right" if "Right" in n.text else None
         if side is None:
             continue
-        m = (s > n.s) & (s < n.s + 40)          # table distance ~ start of the corner
+        m = (s > n.s) & (s < n.s + 40)  # table distance ~ start of the corner
         if not m.any():
             continue
-        left = k[m].mean() < 0                  # UE is left-handed: k > 0 turns right
+        left = k[m].mean() < 0  # UE is left-handed: k > 0 turns right
         if left == (side == "Left"):
             good += 1
         else:
@@ -144,8 +157,8 @@ class WPSource:
     stage: SourceStage
     main: str
     cells: list
-    route_cells: dict          # path -> "fwd" | "rev" | "cut"
-    tables: dict               # "forward"/"reverse" -> path
+    route_cells: dict  # path -> "fwd" | "rev" | "cut"
+    tables: dict  # "forward"/"reverse" -> path
     baked: str
 
 
@@ -169,8 +182,10 @@ def load_wp_source(fs: GameFS, lvl: str, step: float = 2.0) -> WPSource:
     tables = _tables_for(fs, lvl)
     notes: list[Pacenote] = []
     if "forward" in tables:
-        notes = [Pacenote(float(r.distance), " ".join(r.tokens), "original", float(r.length))
-                 for r in read_pacenote_table(Package(fs.read(tables["forward"])))]
+        notes = [
+            Pacenote(float(r.distance), " ".join(r.tokens), "original", float(r.length))
+            for r in read_pacenote_table(Package(fs.read(tables["forward"])))
+        ]
     best = None
     for c in full:
         pts = resample(routes[c]["CenterSpline"], step)
@@ -198,11 +213,14 @@ def load_wp_source(fs: GameFS, lvl: str, step: float = 2.0) -> WPSource:
     for n in notes:
         n.s *= scale
     loc = re.sub(r"(SS\d+|S\d+.*)$", "", lvl)
-    stage = SourceStage(lvl, loc, _surface(Package(fs.read(fwd_cell)), lvl), centre, width,
-                        sorted(notes, key=lambda n: n.s))
+    stage = SourceStage(
+        lvl, loc, _surface(Package(fs.read(fwd_cell)), lvl), centre, width, sorted(notes, key=lambda n: n.s)
+    )
     baked = next(p for p in fs.index if p.endswith(f"DA_{lvl}BakedData.uasset"))
-    print(f"  {lvl}: forward route {fwd_cell.rsplit('/', 1)[-1]} (turn agreement {score:.0%}), "
-          f"{sum(v == 'rev' for v in kinds.values())} reverse, {sum(v == 'cut' for v in kinds.values())} cut variants")
+    print(
+        f"  {lvl}: forward route {fwd_cell.rsplit('/', 1)[-1]} (turn agreement {score:.0%}), "
+        f"{sum(v == 'rev' for v in kinds.values())} reverse, {sum(v == 'cut' for v in kinds.values())} cut variants"
+    )
     return WPSource(stage, main, cells, kinds, tables, baked)
 
 
@@ -210,8 +228,9 @@ def find_levels(fs: GameFS) -> list[str]:
     return [p for p in fs.find("/Content/Levels/") if p.endswith(".umap") and "_Generated_" not in p]
 
 
-def load_location(location: str, paks_dir: str = DEFAULT_PAKS, step: float = 2.0,
-                  include_mods: bool = True) -> list[SourceStage]:
+def load_location(
+    location: str, paks_dir: str = DEFAULT_PAKS, step: float = 2.0, include_mods: bool = True
+) -> list[SourceStage]:
     fs = GameFS(paks_dir, include_mods=include_mods)
     stages = []
     for lv in find_levels(fs):
@@ -220,6 +239,6 @@ def load_location(location: str, paks_dir: str = DEFAULT_PAKS, step: float = 2.0
             continue
         try:
             stages.append(load_level(fs, lv, step, location=location))
-        except Exception as ex:   # noqa: BLE001 - report and keep going
+        except Exception as ex:  # noqa: BLE001 - report and keep going
             print(f"  skip {base}: {ex}")
     return stages

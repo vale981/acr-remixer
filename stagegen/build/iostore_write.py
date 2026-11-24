@@ -7,6 +7,7 @@ Layout mirrors what UE 5.6 mod containers use (TOC v8, flags = Indexed,
 no compression, no perfect hash, 64 KiB blocks, one partition). Chunk hashes
 are left zero (only checked for signed containers).
 """
+
 from __future__ import annotations
 
 import struct
@@ -19,9 +20,9 @@ BLOCK = 65536
 
 @dataclass
 class ChunkIn:
-    chunk_id: bytes        # 12 bytes
+    chunk_id: bytes  # 12 bytes
     data: bytes
-    path: str | None = None   # mount-relative path for the directory index
+    path: str | None = None  # mount-relative path for the directory index
 
 
 def _fstring(s: str) -> bytes:
@@ -35,12 +36,13 @@ def _dir_index(mount: str, files: list[tuple[str, int]]) -> bytes:
 
     def S(s):
         if s not in sidx:
-            sidx[s] = len(strings); strings.append(s)
+            sidx[s] = len(strings)
+            strings.append(s)
         return sidx[s]
 
     NONE = 0xFFFFFFFF
-    dirs = [[NONE, NONE, NONE, NONE]]          # name, first_child, next_sibling, first_file
-    fentries: list[list[int]] = []              # name, next_file, user
+    dirs = [[NONE, NONE, NONE, NONE]]  # name, first_child, next_sibling, first_file
+    fentries: list[list[int]] = []  # name, next_file, user
     children: dict[tuple[int, str], int] = {}
     for path, user in files:
         parts = path.split("/")
@@ -69,14 +71,20 @@ def _dir_index(mount: str, files: list[tuple[str, int]]) -> bytes:
     return bytes(out)
 
 
-def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
-                    pak_template: bytes, mount: str = "../../../", compression: str | None = None) -> None:
+def write_container(
+    base_path: str,
+    container_id: int,
+    chunks: list[ChunkIn],
+    pak_template: bytes,
+    mount: str = "../../../",
+    compression: str | None = None,
+) -> None:
     """Writes base_path + .utoc/.ucas/.pak. compression: None (what the build
     writes), "zlib" or "gzip" (as some third-party mods are packed; used by the tests)."""
     if compression not in (None, "zlib", "gzip"):
         raise ValueError(f"unsupported compression {compression}")
     offlen = []
-    blocks = []                      # (ucas_offset, compressed size, size, method)
+    blocks = []  # (ucas_offset, compressed size, size, method)
     compressed_chunks: set[int] = set()
     ucas_pos = 0
     uoff = 0
@@ -84,14 +92,14 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
         for c in chunks:
             offlen.append((uoff, len(c.data)))
             for p in range(0, max(len(c.data), 1), BLOCK):
-                piece = c.data[p: p + BLOCK]
+                piece = c.data[p : p + BLOCK]
                 stored, method = piece, 0
                 if compression == "zlib":
                     stored, method = zlib.compress(piece), 1
                 elif compression == "gzip":
                     co = zlib.compressobj(wbits=16 + zlib.MAX_WBITS)
                     stored, method = co.compress(piece) + co.flush(), 1
-                if len(stored) >= len(piece):            # like UE's packer: keep incompressible blocks raw
+                if len(stored) >= len(piece):  # like UE's packer: keep incompressible blocks raw
                     stored, method = piece, 0
                 if method:
                     compressed_chunks.add(len(offlen) - 1)
@@ -101,7 +109,8 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
                 # keep ucas blocks 16-byte aligned like UE does
                 pad = (-ucas_pos) % 16
                 if pad:
-                    ucas.write(b"\0" * pad); ucas_pos += pad
+                    ucas.write(b"\0" * pad)
+                    ucas_pos += pad
             uoff += ((len(c.data) + BLOCK - 1) // BLOCK) * BLOCK or BLOCK
 
     files = [(c.path, i) for i, c in enumerate(chunks) if c.path]
@@ -109,19 +118,19 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
 
     hdr = bytearray(144)
     hdr[0:16] = MAGIC
-    hdr[16] = 8                                       # version
-    struct.pack_into("<I", hdr, 20, 144)              # header size
+    hdr[16] = 8  # version
+    struct.pack_into("<I", hdr, 20, 144)  # header size
     struct.pack_into("<I", hdr, 24, len(chunks))
     struct.pack_into("<I", hdr, 28, len(blocks))
     struct.pack_into("<I", hdr, 32, 12)
-    struct.pack_into("<I", hdr, 36, 1 if compression else 0)   # compression method count
+    struct.pack_into("<I", hdr, 36, 1 if compression else 0)  # compression method count
     struct.pack_into("<I", hdr, 40, 32)
     struct.pack_into("<I", hdr, 44, BLOCK)
     struct.pack_into("<I", hdr, 48, len(dindex))
-    struct.pack_into("<I", hdr, 52, 1)                # partition count
+    struct.pack_into("<I", hdr, 52, 1)  # partition count
     struct.pack_into("<Q", hdr, 56, container_id)
-    hdr[80] = 0x08 | (0x01 if compression else 0)     # Indexed (+ Compressed)
-    struct.pack_into("<I", hdr, 84, 0)                # perfect hash seeds
+    hdr[80] = 0x08 | (0x01 if compression else 0)  # Indexed (+ Compressed)
+    struct.pack_into("<I", hdr, 84, 0)  # perfect hash seeds
     struct.pack_into("<Q", hdr, 88, 0xFFFFFFFFFFFFFFFF)
     struct.pack_into("<I", hdr, 96, 0)
 
@@ -134,10 +143,10 @@ def write_container(base_path: str, container_id: int, chunks: list[ChunkIn],
     for off, csize, size, method in blocks:
         out += off.to_bytes(5, "little") + csize.to_bytes(3, "little") + size.to_bytes(3, "little") + bytes([method])
     if compression:
-        out += {"zlib": b"Zlib", "gzip": b"Gzip"}[compression].ljust(32, b"\0")   # method names, 32 B each
+        out += {"zlib": b"Zlib", "gzip": b"Gzip"}[compression].ljust(32, b"\0")  # method names, 32 B each
     out += dindex
-    for i in range(len(chunks)):                      # chunk metas: 20 B hash (zero), flags, padding
-        out += bytes(20) + bytes([1 if i in compressed_chunks else 0]) + bytes(3)   # 1 = Compressed
+    for i in range(len(chunks)):  # chunk metas: 20 B hash (zero), flags, padding
+        out += bytes(20) + bytes([1 if i in compressed_chunks else 0]) + bytes(3)  # 1 = Compressed
     with open(base_path + ".utoc", "wb") as f:
         f.write(out)
     with open(base_path + ".pak", "wb") as f:

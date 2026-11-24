@@ -18,6 +18,7 @@ i.e. by where their actors *used* to be. `all_cells_in_top_level` registers
 every cell in the highest occupied level's cell, the one that already holds
 the variant route cells and is loaded wherever the stage is driven.
 """
+
 from __future__ import annotations
 
 import struct
@@ -31,8 +32,8 @@ GRID_FIELD_SIZES = {0: 8, 1: 24, 2: 4, 3: 4, 4: 1, 5: 16}
 
 @dataclass
 class Level:
-    layer_cells: list          # [[ref, ...], ...]
-    mapping: list              # [(coord, index), ...]
+    layer_cells: list  # [[ref, ...], ...]
+    mapping: list  # [(coord, index), ...]
 
 
 def _parse_levels(r: Reader):
@@ -54,7 +55,8 @@ def _parse_levels(r: Reader):
                 if r.i32() != 0:
                     raise ValueError("TMap with removed keys")
                 for _ in range(r.i32()):
-                    k, = struct.unpack_from("<q", r.d, r.p); r.p += 8
+                    (k,) = struct.unpack_from("<q", r.d, r.p)
+                    r.p += 8
                     mapping.append((k, r.i32()))
             else:
                 raise ValueError(f"unknown grid level field {f}")
@@ -111,9 +113,9 @@ def widen_cell_data(payload: bytes, level: int, half: float = 1.0e7) -> bytes | 
         return None
     vals = {}
     for f in h:
-        vals[f] = payload[r.p: r.p + CELLDATA_SIZES[f]]
+        vals[f] = payload[r.p : r.p + CELLDATA_SIZES[f]]
         r.p += CELLDATA_SIZES[f]
-    tail = payload[r.p:]
+    tail = payload[r.p :]
     box = struct.pack("<6d", -half, -half, -half / 10, half, half, half / 10) + b"\x01"
     out = _hdr_for([1, 2, 4, 6]) + struct.pack("<f", half) + box + vals[4] + struct.pack("<i", level)
     return out + tail

@@ -3,6 +3,7 @@
 
 """Press a gamepad step sequence and log the active CommonUI screens (ui2.txt
 from the StageTest live reporter) after each step. Used to map the menu path."""
+
 import os
 import sys
 import time
@@ -11,8 +12,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 import vgamepad as vg
 from acr_harness import BUTTONS, focus
 
-UI = os.path.join(os.path.dirname(__file__), "..", "..", "acr", "Binaries", "Win64", "ue4ss", "Mods", "StageTest",
-                  "ui.txt")
+UI = os.path.join(
+    os.path.dirname(__file__), "..", "..", "acr", "Binaries", "Win64", "ue4ss", "Mods", "StageTest", "ui.txt"
+)
 
 
 def ui():
@@ -34,9 +36,12 @@ def main(steps):
             focus()
             b = getattr(vg.XUSB_BUTTON, BUTTONS[name])
             for _ in range(int(n or 1)):
-                pad.press_button(button=b); pad.update()
-                time.sleep(0.06 if "DPAD" in BUTTONS[name] else 0.25)   # a longer D-pad hold counts twice in carousels
-                pad.release_button(button=b); pad.update(); time.sleep(0.7)
+                pad.press_button(button=b)
+                pad.update()
+                time.sleep(0.06 if "DPAD" in BUTTONS[name] else 0.25)  # a longer D-pad hold counts twice in carousels
+                pad.release_button(button=b)
+                pad.update()
+                time.sleep(0.7)
             time.sleep(2.0)
         print(f"{step:8s} -> {ui()}", flush=True)
 

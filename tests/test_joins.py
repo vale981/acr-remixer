@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Join smoothing (stagegen/joins.py) on synthetic straight roads."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,7 +13,7 @@ from stagegen.joins import join_shears
 
 def _roads(h_in, h_out, n=401, L=200.0):
     t = np.linspace(-L, 0, n)[:, None]
-    prev = np.c_[t * np.cos(h_in), t * np.sin(h_in), 0.05 * t]       # arrives at the origin
+    prev = np.c_[t * np.cos(h_in), t * np.sin(h_in), 0.05 * t]  # arrives at the origin
     t2 = np.linspace(0, L, n)[:, None]
     nxt = np.c_[t2 * np.cos(h_out), t2 * np.sin(h_out), -0.02 * t2]
     return prev, nxt
@@ -40,11 +41,11 @@ def test_points_on_the_line_and_beyond_reach_stay():
     e = np.array([np.cos(0.2), np.sin(0.2)])
     on_line = np.array([[10, 5, 3]]) + np.c_[np.linspace(-50, 50, 11)[:, None] * e, np.zeros(11)]
     for sh in (sp, sn):
-        assert np.allclose(sh.apply(on_line), on_line)            # the shared edge: meshes stay seamless
+        assert np.allclose(sh.apply(on_line), on_line)  # the shared edge: meshes stay seamless
         far = np.array([[10, 5, 0]]) + np.r_[sh.n * 150.0, 0.0]
-        assert np.allclose(sh.apply(far), far)                     # beyond the reach nothing moves
+        assert np.allclose(sh.apply(far), far)  # beyond the reach nothing moves
         behind = np.array([[10, 5, 0]]) - np.r_[sh.n * 30.0, 0.0]
-        assert np.allclose(sh.apply(behind), behind)               # the other side is not touched
+        assert np.allclose(sh.apply(behind), behind)  # the other side is not touched
 
 
 def test_gradient_step_is_split():

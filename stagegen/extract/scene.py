@@ -14,6 +14,7 @@ For each class we infer L by consensus: scan payloads for a location-like
 double triple and see which header index lines up with it. A component is a
 root (world-space transform) when AttachParent (L-5) is absent from its header.
 """
+
 from __future__ import annotations
 
 import collections
@@ -25,19 +26,19 @@ import numpy as np
 from .unversioned import Reader
 from .zen import Package
 
-WORLD = 6.0e5      # |coordinate| bound in cm for this kind of level
+WORLD = 6.0e5  # |coordinate| bound in cm for this kind of level
 
 
 @dataclass
 class SceneTransform:
     export: int
-    owner: int                 # actor export index (outer)
-    loc_off: int | None        # absolute byte offsets into package data
+    owner: int  # actor export index (outer)
+    loc_off: int | None  # absolute byte offsets into package data
     rot_off: int | None
     scale_off: int | None
     root: bool
-    loc: np.ndarray            # cm
-    rot: np.ndarray            # pitch, yaw, roll (deg)
+    loc: np.ndarray  # cm
+    rot: np.ndarray  # pitch, yaw, roll (deg)
     scale: np.ndarray
 
 
@@ -46,8 +47,12 @@ def _triple(d, p):
 
 
 def _loc_like(v):
-    return all(np.isfinite(v)) and all(abs(x) < WORLD for x in v) and max(abs(x) for x in v) > 50 \
+    return (
+        all(np.isfinite(v))
+        and all(abs(x) < WORLD for x in v)
+        and max(abs(x) for x in v) > 50
         and all(x == 0 or abs(x) > 1e-6 for x in v)
+    )
 
 
 def _rot_like(v):
@@ -75,7 +80,7 @@ def scene_transforms(pk: Package) -> list[SceneTransform]:
             r = Reader(d, e.data_offset)
             h = r.header()
             headers[i] = (h, r.p)
-        except Exception:     # noqa: BLE001 - not every export is property data
+        except Exception:  # noqa: BLE001 - not every export is property data
             continue
 
     # Infer L per class: for exports whose header has exactly one value before
@@ -104,9 +109,11 @@ def scene_transforms(pk: Package) -> list[SceneTransform]:
                     q = p + 24
                     ok = True
                     if L + 1 in hs:
-                        ok &= q + 24 <= end and _rot_like(_triple(d, q)); q += 24
+                        ok &= q + 24 <= end and _rot_like(_triple(d, q))
+                        q += 24
                     if ok and L + 2 in hs:
-                        ok &= q + 24 <= end and _scale_like(_triple(d, q)); q += 24
+                        ok &= q + 24 <= end and _scale_like(_triple(d, q))
+                        q += 24
                     if ok:
                         votes[L] += 1
                         break
@@ -124,14 +131,17 @@ def scene_transforms(pk: Package) -> list[SceneTransform]:
         hs = set(h)
         end = e.data_offset + e.serial_size
         loc_off = rot_off = scale_off = None
-        loc = np.zeros(3); rot = np.zeros(3); sc = np.ones(3)
+        loc = np.zeros(3)
+        rot = np.zeros(3)
+        sc = np.ones(3)
         found = False
         for p in range(p0, end - 23):
             q = p
             if L in hs:
                 if not _loc_like(_triple(d, q)):
                     continue
-                cand_loc = q; q += 24
+                cand_loc = q
+                q += 24
             else:
                 cand_loc = None
             if L + 1 in hs:
@@ -139,13 +149,15 @@ def scene_transforms(pk: Package) -> list[SceneTransform]:
                     if cand_loc is None:
                         continue
                     continue
-                cand_rot = q; q += 24
+                cand_rot = q
+                q += 24
             else:
                 cand_rot = None
             if L + 2 in hs:
                 if q + 24 > end or not _scale_like(_triple(d, q)):
                     continue
-                cand_sc = q; q += 24
+                cand_sc = q
+                q += 24
             else:
                 cand_sc = None
             loc_off, rot_off, scale_off = cand_loc, cand_rot, cand_sc

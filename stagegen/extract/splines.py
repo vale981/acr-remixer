@@ -9,6 +9,7 @@ Coordinates in the inspected ACR spline exports are UE world-space centimetres
 observed to be identity in the levels examined so far; this must be verified for
 any new stage before assuming the values are world-space.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -33,11 +34,11 @@ CIM_UNKNOWN = 6
 class SplineCurve:
     """One serialized FInterpCurveVector, in its native input-key domain."""
 
-    input_keys: np.ndarray       # (N,), FInterpCurvePoint::InVal
-    positions: np.ndarray        # (N,3), FVector OutVal (cm)
+    input_keys: np.ndarray  # (N,), FInterpCurvePoint::InVal
+    positions: np.ndarray  # (N,3), FVector OutVal (cm)
     arrive_tangents: np.ndarray  # (N,3), FVector (per input-key unit)
-    leave_tangents: np.ndarray   # (N,3), FVector (per input-key unit)
-    interp_modes: np.ndarray     # (N,), EInterpCurveMode byte
+    leave_tangents: np.ndarray  # (N,3), FVector (per input-key unit)
+    interp_modes: np.ndarray  # (N,), EInterpCurveMode byte
     is_looped: bool = False
     loop_key_offset: float = 0.0
 
@@ -51,20 +52,21 @@ def read_spline_curve(pk: Package, export_name: str) -> SplineCurve:
     e = next(x for x in pk.exports if x.name == export_name)
     r = Reader(pk.d, e.data_offset)
     top = r.header()
-    if top and top[0] == 0:      # 4-byte value before SplineCurves (IdealSpline)
+    if top and top[0] == 0:  # 4-byte value before SplineCurves (IdealSpline)
         r.i32()
         top = top[1:]
     if not top or top[0] != 2:
         raise ValueError(f"no SplineCurves in {export_name}: {top}")
 
-    curves = r.header()          # FSplineCurves
+    curves = r.header()  # FSplineCurves
     if not curves or curves[0] != 0:
         raise ValueError(f"no Position curve in {export_name}: {curves}")
 
-    curve_fields = r.header()    # FInterpCurveVector: Points, bIsLooped, LoopKeyOffset
+    curve_fields = r.header()  # FInterpCurveVector: Points, bIsLooped, LoopKeyOffset
     if not curve_fields or curve_fields[0] != 0:
-        return SplineCurve(np.zeros(0), np.zeros((0, 3)), np.zeros((0, 3)),
-                           np.zeros((0, 3)), np.zeros(0, dtype=np.uint8))
+        return SplineCurve(
+            np.zeros(0), np.zeros((0, 3)), np.zeros((0, 3)), np.zeros((0, 3)), np.zeros(0, dtype=np.uint8)
+        )
 
     n = r.u32()
     inval = np.zeros(n, dtype=np.float64)
@@ -136,8 +138,7 @@ def _split_bezier(c: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     b012 = (b01 + b12) * 0.5
     b123 = (b12 + b23) * 0.5
     mid = (b012 + b123) * 0.5
-    return (np.stack((b0, b01, b012, mid)),
-            np.stack((mid, b123, b23, b3)))
+    return (np.stack((b0, b01, b012, mid)), np.stack((mid, b123, b23, b3)))
 
 
 def _append_unique(out: list[np.ndarray], point: np.ndarray, eps: float = 1e-9):
@@ -145,15 +146,19 @@ def _append_unique(out: list[np.ndarray], point: np.ndarray, eps: float = 1e-9):
         out.append(np.asarray(point, dtype=np.float64).copy())
 
 
-def _append_adaptive_bezier(control: np.ndarray, out: list[np.ndarray], step_cm: float,
-                            tolerance_cm: float, depth: int, max_depth: int,
-                            max_points: int):
+def _append_adaptive_bezier(
+    control: np.ndarray,
+    out: list[np.ndarray],
+    step_cm: float,
+    tolerance_cm: float,
+    depth: int,
+    max_depth: int,
+    max_points: int,
+):
     """Append a cubic Bezier endpoint using convex-hull length/flatness bounds."""
     b0, b1, b2, b3 = control
-    polygon = (float(np.linalg.norm(b1 - b0)) + float(np.linalg.norm(b2 - b1))
-               + float(np.linalg.norm(b3 - b2)))
-    flatness = max(_point_segment_distance(b1, b0, b3),
-                   _point_segment_distance(b2, b0, b3))
+    polygon = float(np.linalg.norm(b1 - b0)) + float(np.linalg.norm(b2 - b1)) + float(np.linalg.norm(b3 - b2))
+    flatness = max(_point_segment_distance(b1, b0, b3), _point_segment_distance(b2, b0, b3))
     if polygon <= step_cm and flatness <= tolerance_cm:
         _append_unique(out, b3)
         if len(out) > max_points:
@@ -166,9 +171,13 @@ def _append_adaptive_bezier(control: np.ndarray, out: list[np.ndarray], step_cm:
     _append_adaptive_bezier(right, out, step_cm, tolerance_cm, depth + 1, max_depth, max_points)
 
 
-def sample_spline(curve: SplineCurve, step_cm: float = 50.0,
-                  tolerance_cm: float = 1.0, max_depth: int = 16,
-                  max_points: int = 2_000_000) -> np.ndarray:
+def sample_spline(
+    curve: SplineCurve,
+    step_cm: float = 50.0,
+    tolerance_cm: float = 1.0,
+    max_depth: int = 16,
+    max_points: int = 2_000_000,
+) -> np.ndarray:
     """Sample FInterpCurveVector using Unreal's key-interval and mode semantics.
 
     Unreal scales endpoint tangents by the input-key interval before cubic
@@ -193,7 +202,13 @@ def sample_spline(curve: SplineCurve, step_cm: float = 50.0,
     leave = np.asarray(curve.leave_tangents, np.float64)
     modes = np.asarray(curve.interp_modes, np.uint8)
     n = len(P)
-    if P.shape != (n, 3) or keys.shape != (n,) or arrive.shape != (n, 3)             or leave.shape != (n, 3) or modes.shape != (n,):
+    if (
+        P.shape != (n, 3)
+        or keys.shape != (n,)
+        or arrive.shape != (n, 3)
+        or leave.shape != (n, 3)
+        or modes.shape != (n,)
+    ):
         raise ValueError("spline curve arrays have inconsistent shapes")
     if not all(np.all(np.isfinite(a)) for a in (P, keys, arrive, leave)):
         raise ValueError("spline curve contains non-finite values")
@@ -257,8 +272,7 @@ def sample_hermite(P, A, L, step_cm: float = 50.0) -> np.ndarray:
     if P.ndim != 2 or P.shape[1:] != (3,) or A.shape != P.shape or L.shape != P.shape:
         raise ValueError("P, A and L must be arrays of shape (N, 3)")
     n = len(P)
-    curve = SplineCurve(np.arange(n, dtype=np.float64), P, A, L,
-                        np.full(n, CIM_CURVE_USER, dtype=np.uint8))
+    curve = SplineCurve(np.arange(n, dtype=np.float64), P, A, L, np.full(n, CIM_CURVE_USER, dtype=np.uint8))
     return sample_spline(curve, step_cm=step_cm)
 
 

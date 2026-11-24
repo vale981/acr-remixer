@@ -2,21 +2,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """CityHash64 (v1.1, as used by Unreal Engine) in pure Python."""
+
 from __future__ import annotations
 
 M = 0xFFFFFFFFFFFFFFFF
-k0 = 0xc3a5c85c97cb3127
-k1 = 0xb492b66fbe98f273
-k2 = 0x9ae16a3b2f90404f
-kMul = 0x9ddfea08eb382d69
+k0 = 0xC3A5C85C97CB3127
+k1 = 0xB492B66FBE98F273
+k2 = 0x9AE16A3B2F90404F
+kMul = 0x9DDFEA08EB382D69
 
 
 def _f64(s, i):
-    return int.from_bytes(s[i:i + 8], "little")
+    return int.from_bytes(s[i : i + 8], "little")
 
 
 def _f32(s, i):
-    return int.from_bytes(s[i:i + 4], "little")
+    return int.from_bytes(s[i : i + 4], "little")
 
 
 def _rot(v, sh):
@@ -73,8 +74,7 @@ def _hlen17to32(s):
     b = _f64(s, 8)
     c = (_f64(s, n - 8) * mul) & M
     d = (_f64(s, n - 16) * k2) & M
-    return _hlen16((_rot((a + b) & M, 43) + _rot(c, 30) + d) & M,
-                   (a + _rot((b + k2) & M, 18) + c) & M, mul)
+    return _hlen16((_rot((a + b) & M, 43) + _rot(c, 30) + d) & M, (a + _rot((b + k2) & M, 18) + c) & M, mul)
 
 
 def _weak(w, x, y, z, a, b):
@@ -143,8 +143,7 @@ def cityhash64(s: bytes) -> int:
         i += 64
         if i == end:
             break
-    return _h128to64((_h128to64(v[0], w[0]) + _smix(y) * k1 + z) & M,
-                     (_h128to64(v[1], w[1]) + x) & M)
+    return _h128to64((_h128to64(v[0], w[0]) + _smix(y) * k1 + z) & M, (_h128to64(v[1], w[1]) + x) & M)
 
 
 def name_hash(name: str) -> int:

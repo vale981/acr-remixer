@@ -11,6 +11,7 @@ index, export i = i + 1), imported package names, cell maps. Payloads are
 found by their serial offset, so new ones go at the end of the data (before
 the 4-byte package tag).
 """
+
 from __future__ import annotations
 
 import struct
@@ -25,11 +26,11 @@ DEP_HDR = "<iIIII"
 
 @dataclass
 class NewExport:
-    template: int                 # existing export to copy the map entry and dependencies from
-    name: str                     # object name (may end in _N: stored as FName number)
+    template: int  # existing export to copy the map entry and dependencies from
+    name: str  # object name (may end in _N: stored as FName number)
     payload: bytes
-    outer: int | None = None      # export index (incl. other new ones), None = template's
-    dep_remap: dict = field(default_factory=dict)   # export index -> export index, for dependencies
+    outer: int | None = None  # export index (incl. other new ones), None = template's
+    dep_remap: dict = field(default_factory=dict)  # export index -> export index, for dependencies
 
 
 def _fname(names: list[str], s: str) -> tuple[int, int]:
@@ -45,8 +46,9 @@ def needed_names(s: str) -> str:
     return head if head and tail.isdigit() and (tail == "0" or not tail.startswith("0")) else s
 
 
-def append_exports(d: bytes, adds: list[NewExport], extra_names: list[str] = (),
-                   referenced_by: dict | None = None) -> bytes:
+def append_exports(
+    d: bytes, adds: list[NewExport], extra_names: list[str] = (), referenced_by: dict | None = None
+) -> bytes:
     """referenced_by: {existing export: [new export, ...]} - existing exports
     whose payload references new ones; those must be created before the
     existing export is serialized (else the reference resolves to null), so
@@ -89,25 +91,25 @@ def append_exports(d: bytes, adds: list[NewExport], extra_names: list[str] = (),
         first, *cnt = struct.unpack_from(DEP_HDR, d, pk.dep_hdr_off + 20 * ex_i)
         k = sum(cnt)
         deps = list(struct.unpack_from(f"<{k}i", d, pk.dep_entries_off + 4 * first)) if k else []
-        g2 = cnt[0] + cnt[1] + cnt[2]                      # end of group 2 (create before serialize)
+        g2 = cnt[0] + cnt[1] + cnt[2]  # end of group 2 (create before serialize)
         deps[g2:g2] = [r + 1 for r in refs]
         cnt[2] += len(refs)
         hdr_patch[ex_i] = struct.pack(DEP_HDR, n_dep_entries + len(new_entries) // 4, *cnt)
         new_entries += struct.pack(f"<{len(deps)}i", *deps)
 
     data_end = max(e.serial_offset + e.serial_size for e in pk.exports)
-    tag = d[hs + data_end:]
-    body = bytearray(d[hs: hs + data_end])
+    tag = d[hs + data_end :]
+    body = bytearray(d[hs : hs + data_end])
 
     new_map = bytearray()
     for j, a in enumerate(adds):
         q = pk.export_map_off + EXPORT_SIZE * a.template
-        ent = bytearray(d[q: q + EXPORT_SIZE])
+        ent = bytearray(d[q : q + EXPORT_SIZE])
         ni, nn = _fname(names, a.name)
         struct.pack_into("<QQII", ent, 0, len(body), len(a.payload), ni, nn)
         if a.outer is not None:
             struct.pack_into("<Q", ent, 24, a.outer)
-        struct.pack_into("<Q", ent, 56, 0)              # not public
+        struct.pack_into("<Q", ent, 56, 0)  # not public
         new_map += ent
         body += a.payload
 
@@ -117,7 +119,11 @@ def append_exports(d: bytes, adds: list[NewExport], extra_names: list[str] = (),
     entries = [struct.unpack_from("<II", d, be_start + 8 * k) for k in range((be_end - be_start) // 8)]
     needed = {x - 1 for deps in new_deps for x in deps if 0 < x <= n0}
     for a in adds:
-        o = a.outer if a.outer is not None else struct.unpack_from("<Q", d, pk.export_map_off + EXPORT_SIZE * a.template + 24)[0]
+        o = (
+            a.outer
+            if a.outer is not None
+            else struct.unpack_from("<Q", d, pk.export_map_off + EXPORT_SIZE * a.template + 24)[0]
+        )
         if o < n0:
             needed.add(o)
     pos = 1 + max((k for k, (i, c) in enumerate(entries) if c == 0 and i in needed), default=-1)
@@ -131,11 +137,12 @@ def append_exports(d: bytes, adds: list[NewExport], extra_names: list[str] = (),
 
     hdrs_old = bytearray(d[be_end:dh_end])
     for ex_i, h in hdr_patch.items():
-        hdrs_old[20 * ex_i: 20 * ex_i + 20] = h
+        hdrs_old[20 * ex_i : 20 * ex_i + 20] = h
 
     s1, s2, s3, s4 = len(new_map), 16 * n, len(new_hdrs), len(new_entries)
-    out_hdr = (d[:em_end] + new_map + bundle_all + bytes(hdrs_old) + new_hdrs
-               + d[dh_end:de_end] + new_entries + d[de_end:hs])
+    out_hdr = (
+        d[:em_end] + new_map + bundle_all + bytes(hdrs_old) + new_hdrs + d[dh_end:de_end] + new_entries + d[de_end:hs]
+    )
 
     def shift(off: int) -> int:
         k = 0
@@ -155,7 +162,7 @@ def append_exports(d: bytes, adds: list[NewExport], extra_names: list[str] = (),
             # a section that *starts* at a boundary belongs after the inserted bytes,
             # except the sections being extended (their start stays)
             summ[i] = summ[i] if summ[i] < em_end else shift(summ[i])
-    summ[9] = em_end + s1                       # export bundle entries start after the grown export map
+    summ[9] = em_end + s1  # export bundle entries start after the grown export map
     summ[10] = be_end + s1 + s2
     summ[11] = dh_end + s1 + s2 + s3
     summ[1] = len(out_hdr)

@@ -14,6 +14,7 @@ but not C2 at the outer edge. Replacing it with a higher-order profile is
 intentionally deferred until source-stage curvature and in-game measurements
 can be used to calibrate the trade-off.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -57,11 +58,17 @@ class JoinAssessment:
     reach_next_m: float
 
 
-def assess_join(line_angle: float, h_prev: float, h_next: float,
-                g_prev: float, g_next: float,
-                reach_prev_m: float, reach_next_m: float,
-                max_kink_deg: float = 60.0,
-                min_normal_component: float = 0.2) -> JoinAssessment | None:
+def assess_join(
+    line_angle: float,
+    h_prev: float,
+    h_next: float,
+    g_prev: float,
+    g_next: float,
+    reach_prev_m: float,
+    reach_next_m: float,
+    max_kink_deg: float = 60.0,
+    min_normal_component: float = 0.2,
+) -> JoinAssessment | None:
     """Assess a join before modifying geometry; return None if ill-conditioned.
 
     ``reach_prev_m`` and ``reach_next_m`` are nominal source-road arclengths.
@@ -70,8 +77,7 @@ def assess_join(line_angle: float, h_prev: float, h_next: float,
     denominator clamp: near-parallel crossings are not silently treated as
     ordinary crossings.
     """
-    vals = (line_angle, h_prev, h_next, g_prev, g_next, reach_prev_m,
-            reach_next_m, max_kink_deg, min_normal_component)
+    vals = (line_angle, h_prev, h_next, g_prev, g_next, reach_prev_m, reach_next_m, max_kink_deg, min_normal_component)
     if not all(np.isfinite(v) for v in vals):
         return None
     if reach_prev_m <= 0 or reach_next_m <= 0 or max_kink_deg < 0:
@@ -118,18 +124,29 @@ def assess_join(line_angle: float, h_prev: float, h_next: float,
         return None
 
     # max of d*(1-d/D)^2 is 4D/27 at d=D/3.
-    max_boundary_parallel = max(abs(A_prev) * 4 * D_prev / 27,
-                                 abs(A_next) * 4 * D_next / 27)
-    max_vertical = max(abs(Az_prev) * 4 * D_prev / 27,
-                       abs(Az_next) * 4 * D_next / 27)
-    derived = (A_prev, A_next, Az_prev, Az_next, D_prev, D_next,
-               max_boundary_parallel, max_vertical)
+    max_boundary_parallel = max(abs(A_prev) * 4 * D_prev / 27, abs(A_next) * 4 * D_next / 27)
+    max_vertical = max(abs(Az_prev) * 4 * D_prev / 27, abs(Az_next) * 4 * D_next / 27)
+    derived = (A_prev, A_next, Az_prev, Az_next, D_prev, D_next, max_boundary_parallel, max_vertical)
     if not all(np.isfinite(v) for v in derived):
         return None
 
-    return JoinAssessment(a_in, a_out, abs(kink_deg), normal_in, normal_out,
-                          A_prev, A_next, Az_prev, Az_next, D_prev, D_next,
-                          max_boundary_parallel, max_vertical, reach_prev_m, reach_next_m)
+    return JoinAssessment(
+        a_in,
+        a_out,
+        abs(kink_deg),
+        normal_in,
+        normal_out,
+        A_prev,
+        A_next,
+        Az_prev,
+        Az_next,
+        D_prev,
+        D_next,
+        max_boundary_parallel,
+        max_vertical,
+        reach_prev_m,
+        reach_next_m,
+    )
 
 
 def source_aligned_edge_interval(coordinate: float, grid_origin: float, cell: float) -> tuple[float, float]:
@@ -147,8 +164,9 @@ def source_aligned_edge_interval(coordinate: float, grid_origin: float, cell: fl
     return q0, q0 + float(cell)
 
 
-def seam_edge_weights(points: np.ndarray, p0: np.ndarray, e: np.ndarray,
-                      along_min: float, along_max: float, width: float) -> tuple[np.ndarray, np.ndarray]:
+def seam_edge_weights(
+    points: np.ndarray, p0: np.ndarray, e: np.ndarray, along_min: float, along_max: float, width: float
+) -> tuple[np.ndarray, np.ndarray]:
     """Smooth blending weights only inside a finite, actual tile seam band.
 
     ``p0`` is a point on the shared tile edge, ``e`` its unit direction, and
@@ -168,8 +186,7 @@ def seam_edge_weights(points: np.ndarray, p0: np.ndarray, e: np.ndarray,
     delta = P[:, :2] - p0
     q = delta @ e
     d = delta @ n
-    mask = ((q >= min(along_min, along_max)) & (q <= max(along_min, along_max)) &
-            (np.abs(d) < width))
+    mask = (q >= min(along_min, along_max)) & (q <= max(along_min, along_max)) & (np.abs(d) < width)
     w = np.clip(1.0 - np.abs(d) / width, 0.0, 1.0)
     w = w * w * (3.0 - 2.0 * w)
     w = np.where(mask, w, 0.0)
@@ -178,12 +195,12 @@ def seam_edge_weights(points: np.ndarray, p0: np.ndarray, e: np.ndarray,
 
 @dataclass(frozen=True)
 class Shear:
-    p0: np.ndarray        # (2,) a point on the join line (layout frame, m)
-    e: np.ndarray         # (2,) unit vector along the line
-    n: np.ndarray         # (2,) unit normal pointing into this side
-    A: float              # along-line shear at the line (dx_e / dd)
-    Az: float             # vertical shear at the line (dz / dd)
-    D: float              # reach in the boundary-normal coordinate (m)
+    p0: np.ndarray  # (2,) a point on the join line (layout frame, m)
+    e: np.ndarray  # (2,) unit vector along the line
+    n: np.ndarray  # (2,) unit normal pointing into this side
+    A: float  # along-line shear at the line (dx_e / dd)
+    Az: float  # vertical shear at the line (dz / dd)
+    D: float  # reach in the boundary-normal coordinate (m)
 
     def shifted(self, off: np.ndarray) -> "Shear":
         return Shear(self.p0 + off[:2], self.e, self.n, self.A, self.Az, self.D)
@@ -233,19 +250,26 @@ class Shear:
         return np.arctan2(mapped[:, 1], mapped[:, 0]) - h
 
 
-def join_shears(p0, line_angle: float, h_prev: float, h_next: float,
-                g_prev: float, g_next: float,
-                reach_prev_m: float, reach_next_m: float,
-                max_kink_deg: float = 60.0,
-                min_normal_component: float = 0.2):
+def join_shears(
+    p0,
+    line_angle: float,
+    h_prev: float,
+    h_next: float,
+    g_prev: float,
+    g_next: float,
+    reach_prev_m: float,
+    reach_next_m: float,
+    max_kink_deg: float = 60.0,
+    min_normal_component: float = 0.2,
+):
     """Return both shear transforms, or ``(None, None)`` for an unsafe join.
 
     Reach arguments are nominal source-road arclengths, not normal to the
     grid boundary. Use :func:`assess_join` to inspect predicted offsets.
     """
-    assessment = assess_join(line_angle, h_prev, h_next, g_prev, g_next,
-                             reach_prev_m, reach_next_m, max_kink_deg,
-                             min_normal_component)
+    assessment = assess_join(
+        line_angle, h_prev, h_next, g_prev, g_next, reach_prev_m, reach_next_m, max_kink_deg, min_normal_component
+    )
     if assessment is None:
         return None, None
 

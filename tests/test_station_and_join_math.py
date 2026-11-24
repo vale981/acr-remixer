@@ -82,23 +82,28 @@ def test_finite_tile_edge_interval_remains_correct_after_180_degree_rotation():
     assert np.allclose([q0, q1], [-100.0, 250.0])
     p0 = np.array([10.0, 20.0])
     e = np.array([-1.0, 0.0])
-    pts = np.array([p0 + q0 * e, p0 + 100.0 * e, p0 + q1 * e,
-                    p0 + (q0 - 1.0) * e, p0 + (q1 + 1.0) * e])
+    pts = np.array([p0 + q0 * e, p0 + 100.0 * e, p0 + q1 * e, p0 + (q0 - 1.0) * e, p0 + (q1 + 1.0) * e])
     mask, _ = seam_edge_weights(pts, p0, e, q0, q1, width=10.0)
     assert mask.tolist() == [True, True, True, False, False]
 
 
 def test_seam_weights_are_limited_to_finite_shared_edge_band():
-    pts = np.array([
-        [0.0, 0.0, 0.0],
-        [0.0, 4.0, 0.0],
-        [8.0, 0.0, 0.0],
-        [0.0, 11.0, 0.0],
-        [-6.0, 0.0, 0.0],
-    ])
+    pts = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 4.0, 0.0],
+            [8.0, 0.0, 0.0],
+            [0.0, 11.0, 0.0],
+            [-6.0, 0.0, 0.0],
+        ]
+    )
     mask, weights = seam_edge_weights(
-        pts, p0=np.array([0.0, 0.0]), e=np.array([1.0, 0.0]),
-        along_min=-5.0, along_max=5.0, width=10.0,
+        pts,
+        p0=np.array([0.0, 0.0]),
+        e=np.array([1.0, 0.0]),
+        along_min=-5.0,
+        along_max=5.0,
+        width=10.0,
     )
     assert mask.tolist() == [True, True, False, False, False]
     assert np.isclose(weights[0], 1.0)
@@ -114,7 +119,9 @@ def test_tile_sequence_remains_contiguous_after_fractional_stationing():
     p = np.column_stack([x, np.zeros_like(x), 0.01 * x])
     stage = SourceStage("straight", "test", "gravel", p, np.full(len(p), 7.0))
     grid = TileGrid(
-        cell=250.0, x0=0.0, y0=-125.0,
+        cell=250.0,
+        x0=0.0,
+        y0=-125.0,
         tiles={(0, 0), (0, 1), (0, 2), (0, 3)},
     )
     cuts = find_cuts(stage, grid, step=2.0, min_gap=20.0)
@@ -123,8 +130,9 @@ def test_tile_sequence_remains_contiguous_after_fractional_stationing():
     seq = [(i, i + 1, False) for i in range(len(cuts) - 1)]
     assert all((a, b) in by_pair for a, b, _ in seq)
 
-    cfg = TileSearchConfig(min_len=200.0, max_len=300.0, target_length=1000.0,
-                           clearance=95.0, max_kink_deg=15.0, smooth_kink_deg=45.0)
+    cfg = TileSearchConfig(
+        min_len=200.0, max_len=300.0, target_length=1000.0, clearance=95.0, max_kink_deg=15.0, smooth_kink_deg=45.0
+    )
     state, warns = sequence_state(stage, ranges, cuts, cfg, seq)
     layout = build_layout(state, step=2.0)
     assert not warns
@@ -143,8 +151,15 @@ def test_join_shears_match_tangent_and_grade_at_both_sides():
     h_next = np.pi / 2 + np.radians(10.0)
     g_prev, g_next = -0.03, 0.05
     sh_prev, sh_next = join_shears(
-        p0, line, h_prev, h_next, g_prev, g_next,
-        120.0, 120.0, max_kink_deg=60.0,
+        p0,
+        line,
+        h_prev,
+        h_next,
+        g_prev,
+        g_next,
+        120.0,
+        120.0,
+        max_kink_deg=60.0,
     )
     assert sh_prev is not None and sh_next is not None
     target_grade = 0.5 * (g_prev + g_next)
@@ -168,8 +183,7 @@ def test_join_shears_match_tangent_and_grade_at_both_sides():
 def test_world_partition_assignment_uses_interpolated_source_station_array():
     from stagegen.build.wp import PieceX, _Assign
 
-    pts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
-                    [4.0, 0.0, 0.0], [10.0, 0.0, 0.0]])
+    pts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [4.0, 0.0, 0.0], [10.0, 0.0, 0.0]])
     station = np.array([0.0, 1.0, 4.0, 10.0])
     piece = PieceX(3.0, 8.0, np.eye(3), np.zeros(3), 0.0, frozenset())
     assign = _Assign(pts, station, [piece], ext=0.0)
@@ -188,12 +202,10 @@ def test_generic_builder_piece_index_uses_segment_station_bounds():
     pts = np.column_stack([x, np.zeros_like(x), np.zeros_like(x)])
     stage = SourceStage("s", "test", "gravel", pts, np.full(4, 7.0))
     seg = Segment("s#0", stage, 1, 3, 2.0)
-    piece = Piece("segment", seg.points(), seg.widths(), "s#0", False, 0.0,
-                  np.zeros(3), [])
+    piece = Piece("segment", seg.points(), seg.widths(), "s#0", False, 0.0, np.zeros(3), [])
     layout = Layout([piece], piece.points, piece.widths, [], [(0.0, 9.0)])
     mapped = _Pieces(layout, {"s#0": seg}, np.zeros(3))
-    assert np.array_equal(mapped.index(np.array([0.0, 1.0, 4.0, 10.0]), True, True),
-                          np.array([0, 0, 0, 0]))
+    assert np.array_equal(mapped.index(np.array([0.0, 1.0, 4.0, 10.0]), True, True), np.array([0, 0, 0, 0]))
     assert np.allclose(mapped.items[0][:2], [1.0, 10.0])
 
 
@@ -217,8 +229,7 @@ def test_hism_callback_passes_instance_yaw_without_overwriting_layer():
         return np.ones(len(world), dtype=bool), world.copy(), np.zeros(len(world))
 
     # Mirror the callback shape used by build/wp.py's process() loop.
-    _, stats = move_hism(bytes(blob), np.zeros(3),
-                         lambda W, source_yaw, layer=2: place(W, source_yaw, layer))
+    _, stats = move_hism(bytes(blob), np.zeros(3), lambda W, source_yaw, layer=2: place(W, source_yaw, layer))
     assert stats["n"] == 1
     assert seen["layer"] == 2
     assert np.allclose(seen["source_yaw"], [angle])
@@ -226,8 +237,12 @@ def test_hism_callback_passes_instance_yaw_without_overwriting_layer():
 
 def test_shear_yaw_at_seam_uses_inward_one_sided_derivative():
     sh = Shear(
-        p0=np.array([0.0, 0.0]), e=np.array([1.0, 0.0]),
-        n=np.array([0.0, 1.0]), A=0.2, Az=0.0, D=120.0,
+        p0=np.array([0.0, 0.0]),
+        e=np.array([1.0, 0.0]),
+        n=np.array([0.0, 1.0]),
+        A=0.2,
+        Az=0.0,
+        D=120.0,
     )
     p = np.array([[0.0, 0.0, 0.0]])  # exactly on the seam
     h = np.array([np.radians(30.0)])  # points into the transformed side
@@ -242,8 +257,12 @@ def test_shear_yaw_at_seam_uses_inward_one_sided_derivative():
 
 def test_shear_yaw_at_seam_uses_directional_one_sided_derivative():
     sh = Shear(
-        p0=np.array([0.0, 0.0]), e=np.array([1.0, 0.0]),
-        n=np.array([0.0, 1.0]), A=0.2, Az=0.0, D=120.0,
+        p0=np.array([0.0, 0.0]),
+        e=np.array([1.0, 0.0]),
+        n=np.array([0.0, 1.0]),
+        A=0.2,
+        Az=0.0,
+        D=120.0,
     )
     p = np.array([[0.0, 0.0, 0.0]])
     for degrees, should_shear in ((30.0, True), (-30.0, False)):
@@ -264,8 +283,7 @@ def test_join_assessment_offsets_match_closed_form_for_symmetric_kink():
 
     theta = np.radians(15.0)
     reach = 120.0
-    a = assess_join(0.0, np.pi / 2 - theta / 2, np.pi / 2 + theta / 2,
-                    0.0, 0.0, reach, reach, max_kink_deg=20.0)
+    a = assess_join(0.0, np.pi / 2 - theta / 2, np.pi / 2 + theta / 2, 0.0, 0.0, reach, reach, max_kink_deg=20.0)
     assert a is not None
     expected_shift = 4.0 * reach * np.sin(theta / 2) / 27.0
     assert np.isclose(a.max_boundary_parallel_shift_m, expected_shift, rtol=1e-10)

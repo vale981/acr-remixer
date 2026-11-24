@@ -11,6 +11,7 @@ Width: linear blend.
 In-game, this centreline is what a mesh loft (road cross-section + verges +
 collision) would be generated along. Scenery around it is fill, not scan.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,8 +28,9 @@ def hermite(p0, p1, m0, m1, t):
     return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1
 
 
-def connector(a: EndState, yaw_b: float, length: float, grade_b: float,
-              width_b: float, step: float) -> tuple[np.ndarray, np.ndarray, EndState]:
+def connector(
+    a: EndState, yaw_b: float, length: float, grade_b: float, width_b: float, step: float
+) -> tuple[np.ndarray, np.ndarray, EndState]:
     """Build a connector starting at `a` and ending with heading `yaw_b` /
     grade `grade_b`. The end position is derived (not chosen), so the caller
     places the next segment where the connector ends.

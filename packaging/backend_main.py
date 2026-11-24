@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Entry point of the frozen backend (stagegen-backend.exe): the CLI."""
+
 import sys
 
 # frozen apps ignore PYTHONUNBUFFERED: without this the GUI sees no log until

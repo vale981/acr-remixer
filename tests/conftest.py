@@ -9,6 +9,7 @@
   next to this repo); skipped automatically when it isn't there. Run them
   locally with `pytest`; CI runs `pytest -m "not game"`.
 """
+
 from __future__ import annotations
 
 import os
@@ -26,6 +27,7 @@ def pytest_configure(config):
 @pytest.fixture(scope="session")
 def paks():
     from stagegen.extract.real import DEFAULT_PAKS
+
     p = os.environ.get("ACR_PAKS", DEFAULT_PAKS)
     if not os.path.isdir(p) or not any(f.endswith(".utoc") for f in os.listdir(p)):
         pytest.skip("no Assetto Corsa Rally install (set ACR_PAKS)")
@@ -40,6 +42,7 @@ def hafren(paks):
     from stagegen.extract.real import load_wp_source
     from stagegen.extract.zen import Package
     from stagegen.tiles import TileGrid, find_cuts
+
     fs = GameFS(paks, include_mods=False)
     ws = load_wp_source(fs, "WalesS4HafrenSouth")
     meshes, *_ = W.read_baked_raw(Package(fs.read(ws.baked)))

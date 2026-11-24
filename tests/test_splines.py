@@ -14,8 +14,7 @@ from stagegen.extract.splines import (
 )
 
 
-def curve(positions, keys=None, leave=None, arrive=None, modes=None,
-          is_looped=False, loop_key_offset=0.0):
+def curve(positions, keys=None, leave=None, arrive=None, modes=None, is_looped=False, loop_key_offset=0.0):
     positions = np.asarray(positions, dtype=np.float64)
     n = len(positions)
     return SplineCurve(
@@ -81,15 +80,17 @@ def test_equal_value_constant_segment_is_safe_and_deduplicated():
 
 def test_bad_shapes_and_nonmonotonic_keys_are_rejected():
     bad = SplineCurve(
-        np.array([0, 0]), np.array([[0, 0, 0], [1, 0, 0]]),
-        np.zeros((2, 3)), np.zeros((2, 3)), np.array([0, 0], dtype=np.uint8)
+        np.array([0, 0]),
+        np.array([[0, 0, 0], [1, 0, 0]]),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.array([0, 0], dtype=np.uint8),
     )
     with pytest.raises(ValueError, match="strictly increasing"):
         sample_spline(bad)
 
     bad_shape = SplineCurve(
-        np.array([0]), np.array([[0, 0, 0]]), np.zeros((1, 3)),
-        np.zeros((1, 3)), np.array([0, 0], dtype=np.uint8)
+        np.array([0]), np.array([[0, 0, 0]]), np.zeros((1, 3)), np.zeros((1, 3)), np.array([0, 0], dtype=np.uint8)
     )
     with pytest.raises(ValueError, match="inconsistent shapes"):
         sample_spline(bad_shape)
@@ -110,9 +111,9 @@ def test_reader_preserves_curve_modes_loop_flag_and_loop_interval():
     from stagegen.extract.splines import read_spline_curve
 
     data = bytearray()
-    data += _header([2])               # DMSplineComponent: SplineCurves
-    data += _header([0])               # FSplineCurves: Position
-    data += _header([0, 1, 2])         # FInterpCurveVector: Points, bIsLooped, LoopKeyOffset
+    data += _header([2])  # DMSplineComponent: SplineCurves
+    data += _header([0])  # FSplineCurves: Position
+    data += _header([0, 1, 2])  # FInterpCurveVector: Points, bIsLooped, LoopKeyOffset
     data += struct.pack("<I", 2)
     point_values = [
         (1.0, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), CIM_CURVE_USER),

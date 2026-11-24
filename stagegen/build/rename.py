@@ -16,6 +16,7 @@ level under a new name:
 Not handled yet: imported public export hashes for exports of *other* renamed
 packages (a level's cells import nothing from the main package by hash).
 """
+
 from __future__ import annotations
 
 import re
@@ -59,17 +60,18 @@ def rename_package(d: bytes, rename: Callable[[str], str]) -> bytes:
     nums = struct.unpack_from(f"<{len(ipn_names)}I", d, p)
     _, ipn_hv = _name_batch_end(d, ipn_off)
     d1 = len(new_nb) - (nb_end - nb_start)
-    new_ipn = _name_batch([rename(n) for n in ipn_names], ipn_hv or hv or 0xC1640000, ipn_off + d1) + \
-        struct.pack(f"<{len(nums)}I", *nums)
+    new_ipn = _name_batch([rename(n) for n in ipn_names], ipn_hv or hv or 0xC1640000, ipn_off + d1) + struct.pack(
+        f"<{len(nums)}I", *nums
+    )
     d2 = len(new_ipn) - (ipn_end - ipn_off)
-    for k in range(6, 15):                    # offset fields of the summary
+    for k in range(6, 15):  # offset fields of the summary
         if summ[k] <= 0 and k >= 13:
-            continue                          # absent cell maps
+            continue  # absent cell maps
         summ[k] += d1 + (d2 if summ[k] > ipn_off else 0)
     summ[1] = header_size + d1 + d2
 
-    mid = bytearray(d[nb_end:ipn_off])        # imported hashes, import/export maps, bundles, deps
-    tail = d[ipn_end:header_size]             # cell import/export maps
+    mid = bytearray(d[nb_end:ipn_off])  # imported hashes, import/export maps, bundles, deps
+    tail = d[ipn_end:header_size]  # cell import/export maps
     # public export hashes of renamed exports (export map lives in 'mid')
     em_rel = pk.export_map_off - nb_end
     for i, e in enumerate(pk.exports):
@@ -93,7 +95,8 @@ def level_renamer(old: str, new: str) -> Callable[[str], str]:
     def rename(n: str) -> str:
         if n.startswith("/"):
             if not path_re.match(n):
-                return n                       # other assets keep their paths
+                return n  # other assets keep their paths
             n = path_re.sub(f"/Game/Levels/{new}", n)
         return word_re.sub(new, n)
+
     return rename

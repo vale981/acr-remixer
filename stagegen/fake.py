@@ -4,6 +4,7 @@
 """Synthetic 'source stages' for developing the generator before real data
 is extracted. Roads are built from a curvature program (straights, corners
 with linear-curvature transitions) plus smooth random elevation."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -13,8 +14,7 @@ from .model import Pacenote, SourceStage
 from .pacenotes import generate
 
 
-def fake_stage(name: str, length: float, seed: int, location="wales",
-               surface="gravel", step=2.0) -> SourceStage:
+def fake_stage(name: str, length: float, seed: int, location="wales", surface="gravel", step=2.0) -> SourceStage:
     rng = np.random.default_rng(seed)
     n = int(length / step)
     k = np.zeros(n)
@@ -24,7 +24,7 @@ def fake_stage(name: str, length: float, seed: int, location="wales",
         i += straight
         if i >= n:
             break
-        radius = rng.choice([18, 30, 45, 70, 110, 180, 300], p=[.05, .1, .2, .25, .2, .12, .08])
+        radius = rng.choice([18, 30, 45, 70, 110, 180, 300], p=[0.05, 0.1, 0.2, 0.25, 0.2, 0.12, 0.08])
         # cap the turn at ~160° so tight radii don't spiral into loops
         arc = int(min(rng.uniform(15, 90), radius * np.radians(160)) / step)
         trans = int(rng.uniform(10, 30) / step)
@@ -54,7 +54,7 @@ def self_clear(points: np.ndarray, clearance: float, step: float, min_sep: float
     d2 = ((p[:, None] - p[None]) ** 2).sum(-1)
     idx = np.arange(len(p))
     far = np.abs(idx[:, None] - idx[None]) > gap
-    return not (d2[far] < clearance ** 2).any()
+    return not (d2[far] < clearance**2).any()
 
 
 def fake_location(seed: int = 1, clearance: float = 70.0) -> list[SourceStage]:

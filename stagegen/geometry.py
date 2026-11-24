@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later AND MIT
 
 """Polyline helpers. Coordinates are metres, x/y horizontal, z up."""
+
 from __future__ import annotations
 
 import numpy as np

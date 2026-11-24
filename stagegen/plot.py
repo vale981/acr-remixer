@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Top-down map + elevation profile of a generated layout."""
+
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -31,14 +33,23 @@ def plot_layout(layout: Layout, path: str, title: str, corridor: float) -> None:
         else:
             c = colour[p.segment_id.split("#")[0]]
             # faint band = scanned corridor that comes along with the segment
-            ax.plot(xy[:, 0], xy[:, 1], color=c, alpha=0.16,
-                    solid_capstyle="round", zorder=1,
-                    linewidth=corridor * 2 * 72 / _m_per_inch(ax, layout))
+            ax.plot(
+                xy[:, 0],
+                xy[:, 1],
+                color=c,
+                alpha=0.16,
+                solid_capstyle="round",
+                zorder=1,
+                linewidth=corridor * 2 * 72 / _m_per_inch(ax, layout),
+            )
             ax.plot(xy[:, 0], xy[:, 1], color=c, lw=2.2, zorder=2)
         s = arclength(p.points) + s0
-        ax2.plot(s / 1000, p.points[:, 2],
-                 color=CONNECTOR if p.kind == "connector" else colour[p.segment_id.split("#")[0]],
-                 lw=2.2 if p.kind == "connector" else 1.6)
+        ax2.plot(
+            s / 1000,
+            p.points[:, 2],
+            color=CONNECTOR if p.kind == "connector" else colour[p.segment_id.split("#")[0]],
+            lw=2.2 if p.kind == "connector" else 1.6,
+        )
 
     c = layout.centreline
     ax.plot(*c[0, :2], "o", color="black", ms=8, zorder=5)
@@ -47,14 +58,16 @@ def plot_layout(layout: Layout, path: str, title: str, corridor: float) -> None:
     ax.annotate("finish", c[-1, :2], xytext=(8, 8), textcoords="offset points")
     ax.set_aspect("equal")
     ax.set_title(title, loc="left", fontsize=13)
-    ax.set_xlabel("m"); ax.set_ylabel("m")
+    ax.set_xlabel("m")
+    ax.set_ylabel("m")
     handles = [plt.Line2D([], [], color=colour[s], lw=2.2, label=s) for s in stages]
     handles.append(plt.Line2D([], [], color=CONNECTOR, lw=3, label="generated connector"))
     ax.legend(handles=handles, loc="best", frameon=False, fontsize=9)
     for a in (ax, ax2):
         a.spines[["top", "right"]].set_visible(False)
         a.grid(alpha=0.15)
-    ax2.set_xlabel("distance (km)"); ax2.set_ylabel("elevation (m)")
+    ax2.set_xlabel("distance (km)")
+    ax2.set_ylabel("elevation (m)")
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)

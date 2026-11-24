@@ -12,8 +12,7 @@ def test_join_assessment_limits_normal_projection_and_reports_offsets():
     angle = 0.0
     h_in = np.deg2rad(80)
     h_out = np.deg2rad(100)
-    a = assess_join(angle, h_in, h_out, 0.10, 0.0, 100.0, 100.0,
-                    max_kink_deg=30, min_normal_component=0.2)
+    a = assess_join(angle, h_in, h_out, 0.10, 0.0, 100.0, 100.0, max_kink_deg=30, min_normal_component=0.2)
     assert a is not None
     assert abs(a.kink_deg - 20.0) < 1e-8
     assert abs(a.D_prev_normal / a.normal_in - 100.0) < 1e-8
@@ -34,8 +33,7 @@ def test_join_shear_maps_both_sides_to_same_boundary_tangent_and_grade():
     line = 0.0
     h_in, h_out = np.deg2rad(80), np.deg2rad(100)
     g_in, g_out = 0.10, 0.0
-    prev, nxt = join_shears([0, 0], line, h_in, h_out, g_in, g_out,
-                            100.0, 100.0, max_kink_deg=30)
+    prev, nxt = join_shears([0, 0], line, h_in, h_out, g_in, g_out, 100.0, 100.0, max_kink_deg=30)
     assert prev is not None and nxt is not None
 
     eps = 1e-3
@@ -56,8 +54,7 @@ def test_join_shear_maps_both_sides_to_same_boundary_tangent_and_grade():
 
 
 def test_join_rejects_heading_kink_over_configured_limit():
-    assert assess_join(np.pi / 2, np.deg2rad(60), np.deg2rad(120),
-                       0, 0, 100, 100, max_kink_deg=30) is None
+    assert assess_join(np.pi / 2, np.deg2rad(60), np.deg2rad(120), 0, 0, 100, 100, max_kink_deg=30) is None
 
 
 def test_join_grade_is_matched_after_horizontal_shear_changes_speed():
@@ -77,19 +74,17 @@ def test_join_grade_is_matched_after_horizontal_shear_changes_speed():
         h_in = np.arctan2(u_in[1], u_in[0])
         h_out = np.arctan2(u_out[1], u_out[0])
         g_in, g_out = rng.uniform(-0.18, 0.18, size=2)
-        prev, nxt = join_shears([0.0, 0.0], line, h_in, h_out,
-                                g_in, g_out, 100.0, 100.0,
-                                max_kink_deg=160.0, min_normal_component=0.2)
+        prev, nxt = join_shears(
+            [0.0, 0.0], line, h_in, h_out, g_in, g_out, 100.0, 100.0, max_kink_deg=160.0, min_normal_component=0.2
+        )
         if prev is None:
             continue
 
         target_a = (a_in + a_out) * 0.5
         target_dir = np.sin(target_a) * e + np.cos(target_a) * n
         eps = 1e-5
-        before = np.array([[-eps * u_in[0], -eps * u_in[1], -eps * g_in],
-                           [0.0, 0.0, 0.0]])
-        after = np.array([[0.0, 0.0, 0.0],
-                          [eps * u_out[0], eps * u_out[1], eps * g_out]])
+        before = np.array([[-eps * u_in[0], -eps * u_in[1], -eps * g_in], [0.0, 0.0, 0.0]])
+        after = np.array([[0.0, 0.0, 0.0], [eps * u_out[0], eps * u_out[1], eps * g_out]])
         t_in = (prev.apply(before)[1] - prev.apply(before)[0]) / eps
         t_out = (nxt.apply(after)[1] - nxt.apply(after)[0]) / eps
 

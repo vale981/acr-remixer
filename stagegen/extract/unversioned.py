@@ -7,6 +7,7 @@ An unversioned struct starts with u16 fragments: bits 0-6 skip count, bit 7
 'has zero mask', bit 8 'is last', bits 9-15 value count. If any fragment has
 zeroes a bit mask follows (one bit per serialized value, 1 = zero/default and
 omitted). Values then follow in schema order."""
+
 from __future__ import annotations
 
 import struct
@@ -18,25 +19,39 @@ class Reader:
         self.p = pos
 
     def u8(self):
-        v = self.d[self.p]; self.p += 1; return v
+        v = self.d[self.p]
+        self.p += 1
+        return v
 
     def u16(self):
-        v, = struct.unpack_from("<H", self.d, self.p); self.p += 2; return v
+        (v,) = struct.unpack_from("<H", self.d, self.p)
+        self.p += 2
+        return v
 
     def i32(self):
-        v, = struct.unpack_from("<i", self.d, self.p); self.p += 4; return v
+        (v,) = struct.unpack_from("<i", self.d, self.p)
+        self.p += 4
+        return v
 
     def u32(self):
-        v, = struct.unpack_from("<I", self.d, self.p); self.p += 4; return v
+        (v,) = struct.unpack_from("<I", self.d, self.p)
+        self.p += 4
+        return v
 
     def f32(self):
-        v, = struct.unpack_from("<f", self.d, self.p); self.p += 4; return v
+        (v,) = struct.unpack_from("<f", self.d, self.p)
+        self.p += 4
+        return v
 
     def f64(self):
-        v, = struct.unpack_from("<d", self.d, self.p); self.p += 8; return v
+        (v,) = struct.unpack_from("<d", self.d, self.p)
+        self.p += 8
+        return v
 
     def raw(self, n):
-        v = self.d[self.p: self.p + n]; self.p += n; return v
+        v = self.d[self.p : self.p + n]
+        self.p += n
+        return v
 
     def fstring(self):
         n = self.i32()
@@ -47,7 +62,8 @@ class Reader:
         return self.raw(-2 * n).decode("utf-16-le").rstrip("\0")
 
     def fname(self, names):
-        i, num = struct.unpack_from("<II", self.d, self.p); self.p += 8
+        i, num = struct.unpack_from("<II", self.d, self.p)
+        self.p += 8
         s = names[i] if i < len(names) else f"<{i}>"
         return s if num == 0 else f"{s}_{num - 1}"
 
@@ -82,7 +98,7 @@ class Reader:
                 break
         # The zero mask has one bit per value of fragments flagged HasAnyZeroes
         # only; values in other fragments are always serialised.
-        idx, values = 0, []          # (schema index, covered_by_mask)
+        idx, values = 0, []  # (schema index, covered_by_mask)
         for f in frags:
             idx += f & 0x7F
             n = f >> 9

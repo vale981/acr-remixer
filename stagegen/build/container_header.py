@@ -21,6 +21,7 @@ verified on 121 base-game level packages.
 
 New packages need an entry here, or the game cannot find them.
 """
+
 from __future__ import annotations
 
 import struct
@@ -39,13 +40,13 @@ def package_id(package_name: str) -> int:
 @dataclass
 class StoreEntry:
     imports: list[int] = field(default_factory=list)
-    shader_maps: list[bytes] = field(default_factory=list)      # 20-byte hashes
+    shader_maps: list[bytes] = field(default_factory=list)  # 20-byte hashes
 
 
 @dataclass
 class ContainerHeader:
     container_id: int
-    entries: dict[int, StoreEntry]          # package id -> entry
+    entries: dict[int, StoreEntry]  # package id -> entry
     version: int = 5
 
 
@@ -54,7 +55,7 @@ def _entries(ids, blob):
     for i, pid in enumerate(ids):
         n_imp, off_imp, n_sh, off_sh = struct.unpack_from("<IiIi", blob, 16 * i)
         imps = list(struct.unpack_from(f"<{n_imp}Q", blob, 16 * i + off_imp)) if n_imp else []
-        shs = [blob[16 * i + 8 + off_sh + 20 * k: 16 * i + 8 + off_sh + 20 * (k + 1)] for k in range(n_sh)]
+        shs = [blob[16 * i + 8 + off_sh + 20 * k : 16 * i + 8 + off_sh + 20 * (k + 1)] for k in range(n_sh)]
         out[pid] = StoreEntry(imps, shs)
     return out
 
@@ -68,7 +69,7 @@ def parse(d: bytes) -> ContainerHeader:
     ids = struct.unpack_from(f"<{n}Q", d, p + 4)
     p += 4 + 8 * n
     nb = struct.unpack_from("<i", d, p)[0]
-    blob = d[p + 4: p + 4 + nb]
+    blob = d[p + 4 : p + 4 + nb]
     p += 4 + nb
     if struct.unpack_from("<i", d, p)[0] or struct.unpack_from("<i", d, p + 4)[0]:
         raise NotImplementedError("optional segment packages")
@@ -86,7 +87,7 @@ def build(h: ContainerHeader) -> bytes:
     n = len(ids)
     head = bytearray(16 * n)
     data = bytearray()
-    for i, pid in enumerate(ids):                 # per package: its imports, then its shader maps
+    for i, pid in enumerate(ids):  # per package: its imports, then its shader maps
         e = h.entries[pid]
         if e.imports:
             struct.pack_into("<Ii", head, 16 * i, len(e.imports), 16 * n + len(data) - 16 * i)
@@ -98,9 +99,9 @@ def build(h: ContainerHeader) -> bytes:
     out = bytearray(MAGIC + struct.pack("<IQ", h.version, h.container_id))
     out += struct.pack("<i", n) + struct.pack(f"<{n}Q", *ids)
     out += struct.pack("<i", len(blob)) + blob
-    out += struct.pack("<ii", 0, 0)            # optional segment: ids, store entries
-    out += struct.pack("<I", 0)                # redirect names (empty name batch)
-    out += struct.pack("<ii", 0, 0)            # localized packages, package redirects
-    payload = struct.pack("<i", 0)             # soft package references: none
+    out += struct.pack("<ii", 0, 0)  # optional segment: ids, store entries
+    out += struct.pack("<I", 0)  # redirect names (empty name batch)
+    out += struct.pack("<ii", 0, 0)  # localized packages, package redirects
+    payload = struct.pack("<i", 0)  # soft package references: none
     out += struct.pack("<qq", len(out) + 16, len(payload)) + payload
     return bytes(out)
