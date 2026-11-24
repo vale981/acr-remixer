@@ -34,7 +34,10 @@ const STAGES: &[(&str, &str)] = &[
 const VERIFIED: &[&str] = &["WalesS4HafrenSouth", "GreeceS3Elatia"];
 
 #[cfg(embedded_backend)]
-const BACKEND: Option<&[u8]> = Some(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../packaging/dist/stagegen-backend.exe")));
+const BACKEND: Option<&[u8]> = Some(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../packaging/dist/stagegen-backend.exe"
+)));
 #[cfg(not(embedded_backend))]
 const BACKEND: Option<&[u8]> = None;
 
@@ -46,7 +49,8 @@ fn embedded_backend() -> Result<PathBuf, String> {
     for b in bytes.iter().step_by(64) {
         h = (h ^ *b as u64).wrapping_mul(0x100_0000_01b3);
     }
-    let dir = PathBuf::from(std::env::var("LOCALAPPDATA").map_err(|e| e.to_string())?).join("acr-stagegen");
+    let dir = PathBuf::from(std::env::var("LOCALAPPDATA").map_err(|e| e.to_string())?)
+        .join("acr-stagegen");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let exe = dir.join(format!("stagegen-backend-{:x}-{:016x}.exe", bytes.len(), h));
     if !exe.is_file() {
@@ -86,15 +90,25 @@ struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        let acr = steam::detect_acr().map(|p| p.display().to_string()).unwrap_or_default();
+        let acr = steam::detect_acr()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
         let py = std::env::var("LOCALAPPDATA")
             .map(|l| PathBuf::from(l).join(r"Programs\Python\Python314\python.exe"))
             .ok()
             .filter(|p| p.is_file())
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "python".into());
-        let backend = if acr.is_empty() { String::new() } else { format!(r"{acr}\acr-stagegen") };
-        let out = if backend.is_empty() { String::new() } else { format!(r"{backend}\out") };
+        let backend = if acr.is_empty() {
+            String::new()
+        } else {
+            format!(r"{acr}\acr-stagegen")
+        };
+        let out = if backend.is_empty() {
+            String::new()
+        } else {
+            format!(r"{backend}\out")
+        };
         Prefs {
             acr_dir: acr,
             python: py,
@@ -134,9 +148,15 @@ struct Installed {
 /// Settings with an installed stage's build parameters applied.
 fn prefs_with_params(base: &Prefs, params: &serde_json::Value) -> Prefs {
     let mut p = base.clone();
-    if let Some(s) = params["level"].as_str() { p.stage = s.to_string(); }
-    if let Some(v) = params["length"].as_f64() { p.length_m = v as f32; }
-    if let Some(v) = params["seed"].as_u64() { p.seed = v as u32; }
+    if let Some(s) = params["level"].as_str() {
+        p.stage = s.to_string();
+    }
+    if let Some(v) = params["length"].as_f64() {
+        p.length_m = v as f32;
+    }
+    if let Some(v) = params["seed"].as_u64() {
+        p.seed = v as u32;
+    }
     p.max_uses = params["max_uses"].as_u64().unwrap_or(1) as u32;
     p.sequence = params["sequence"].as_str().unwrap_or("").to_string();
     p.use_sequence = !p.sequence.trim().is_empty();
@@ -149,26 +169,51 @@ fn prefs_with_params(base: &Prefs, params: &serde_json::Value) -> Prefs {
 /// Generated stages installed in ~mods (the shared menu-table container excluded).
 fn installed_stages(acr_dir: &str) -> Vec<Installed> {
     let mods = PathBuf::from(acr_dir).join(r"acr\Content\Paks\~mods");
-    let Ok(rd) = std::fs::read_dir(&mods) else { return vec![] };
-    let mut v: Vec<Installed> = rd.filter_map(|e| e.ok()).filter_map(|e| {
-        let n = e.file_name().to_string_lossy().into_owned();
-        let name = n.strip_prefix("pakchunk99-")?.strip_suffix("_Stagegen_9_P.utoc")?.to_string();
-        if name == "Tables" { return None; }
-        let meta = mods.join(format!("pakchunk99-{name}_Stagegen_9_P.stagegen.json"));
-        let j = std::fs::read_to_string(meta).ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
-        let display = j.as_ref().and_then(|j| j["display"].as_str().map(|s| s.to_string()));
-        let params = j.as_ref().map(|j| j["params"].clone()).filter(|p| p.is_object());
-        let layout = Some(mods.join(format!("pakchunk99-{name}_Stagegen_9_P.layout.json"))).filter(|p| p.is_file());
-        Some(Installed { name, display, params, layout })
-    }).collect();
+    let Ok(rd) = std::fs::read_dir(&mods) else {
+        return vec![];
+    };
+    let mut v: Vec<Installed> = rd
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            let name = n
+                .strip_prefix("pakchunk99-")?
+                .strip_suffix("_Stagegen_9_P.utoc")?
+                .to_string();
+            if name == "Tables" {
+                return None;
+            }
+            let meta = mods.join(format!("pakchunk99-{name}_Stagegen_9_P.stagegen.json"));
+            let j = std::fs::read_to_string(meta)
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+            let display = j
+                .as_ref()
+                .and_then(|j| j["display"].as_str().map(|s| s.to_string()));
+            let params = j
+                .as_ref()
+                .map(|j| j["params"].clone())
+                .filter(|p| p.is_object());
+            let layout = Some(mods.join(format!("pakchunk99-{name}_Stagegen_9_P.layout.json")))
+                .filter(|p| p.is_file());
+            Some(Installed {
+                name,
+                display,
+                params,
+                layout,
+            })
+        })
+        .collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
     v
 }
 
 /// Sequence text as the backend normalizes it (single spaces, no commas).
 fn norm_sequence(s: &str) -> String {
-    s.replace(',', " ").split_whitespace().collect::<Vec<_>>().join(" ")
+    s.replace(',', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Tag of a piece sequence: FNV-1a 32-bit of the normalized text (= backend `_seq_tag`).
@@ -186,7 +231,11 @@ fn build_dir(p: &Prefs, seed: u32) -> PathBuf {
     if p.use_sequence && !p.sequence.trim().is_empty() {
         return base.join(format!("{}_seq{}", p.stage, seq_tag(&p.sequence)));
     }
-    let uses = if p.max_uses > 1 { format!("_x{}", p.max_uses) } else { String::new() };
+    let uses = if p.max_uses > 1 {
+        format!("_x{}", p.max_uses)
+    } else {
+        String::new()
+    };
     base.join(format!("{}_seed{seed}_{:.0}m{uses}", p.stage, p.length_m))
 }
 
@@ -199,10 +248,16 @@ fn quiet(cmd: &mut Command) -> &mut Command {
 
 /// Is the firewall rule that blocks ACR's network access present?
 fn fw_blocked() -> bool {
-    quiet(Command::new("netsh").args(["advfirewall", "firewall", "show", "rule", &format!("name={FW_RULE}")]))
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    quiet(Command::new("netsh").args([
+        "advfirewall",
+        "firewall",
+        "show",
+        "rule",
+        &format!("name={FW_RULE}"),
+    ]))
+    .output()
+    .map(|o| o.status.success())
+    .unwrap_or(false)
 }
 
 /// Add (in + out) or remove the blocking rule for acr.exe; one UAC prompt.
@@ -256,7 +311,9 @@ fn redact(s: &str) -> String {
 /// plus "/x2" for repeats and "/0-1_7-11_7-11r_18-19" for a sequence when used.
 fn share_code(p: &Prefs) -> String {
     let fol: String = [(p.forest, 'F'), (p.grass, 'G'), (p.foliage, 'L')]
-        .iter().map(|(on, c)| if *on { *c } else { '-' }).collect();
+        .iter()
+        .map(|(on, c)| if *on { *c } else { '-' })
+        .collect();
     let mut code = format!("{}/{:.0}/{}/{}", p.stage, p.length_m, p.seed, fol);
     if p.use_sequence && !p.sequence.trim().is_empty() {
         code += &format!("/{}", norm_sequence(&p.sequence).replace(' ', "_"));
@@ -269,7 +326,9 @@ fn share_code(p: &Prefs) -> String {
 fn apply_share_code(p: &mut Prefs, code: &str) -> Result<(), String> {
     let parts: Vec<&str> = code.trim().split('/').collect();
     if parts.len() != 4 && parts.len() != 5 {
-        return Err("expected Stage/Length/Seed/Foliage, e.g. WalesS4HafrenSouth/4500/1/FGL".into());
+        return Err(
+            "expected Stage/Length/Seed/Foliage, e.g. WalesS4HafrenSouth/4500/1/FGL".into(),
+        );
     }
     p.max_uses = 1;
     p.use_sequence = false;
@@ -297,11 +356,18 @@ fn apply_share_code(p: &mut Prefs, code: &str) -> Result<(), String> {
 
 /// Summary of the newest ACR crash reports (error + top of the call stack).
 fn acr_crashes(n: usize) -> String {
-    let Ok(base) = std::env::var("LOCALAPPDATA") else { return "(no LOCALAPPDATA)\n".into() };
+    let Ok(base) = std::env::var("LOCALAPPDATA") else {
+        return "(no LOCALAPPDATA)\n".into();
+    };
     let dir = PathBuf::from(base).join(r"acr\Saved\Crashes");
-    let Ok(rd) = std::fs::read_dir(&dir) else { return "(no crash reports)\n".into() };
-    let mut ds: Vec<_> = rd.filter_map(|e| e.ok()).filter(|e| e.path().is_dir())
-        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return "(no crash reports)\n".into();
+    };
+    let mut ds: Vec<_> = rd
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
     ds.sort_by(|a, b| b.0.cmp(&a.0));
     let mut out = String::new();
     for (t, d) in ds.into_iter().take(n) {
@@ -309,17 +375,37 @@ fn acr_crashes(n: usize) -> String {
         let txt = std::fs::read_to_string(d.join("CrashContext.runtime-xml")).unwrap_or_default();
         let tag = |name: &str| -> String {
             let (a, b) = (format!("<{name}>"), format!("</{name}>"));
-            txt.find(&a).and_then(|i| txt[i + a.len()..].find(&b).map(|j| txt[i + a.len()..i + a.len() + j].trim().to_string()))
+            txt.find(&a)
+                .and_then(|i| {
+                    txt[i + a.len()..]
+                        .find(&b)
+                        .map(|j| txt[i + a.len()..i + a.len() + j].trim().to_string())
+                })
                 .unwrap_or_default()
         };
-        let stack: Vec<String> = tag("PCallStack").lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).take(15).collect();
-        out.push_str(&format!("--- crash {} min ago: {}\n{}\n", age, tag("ErrorMessage"), stack.join("\n")));
+        let stack: Vec<String> = tag("PCallStack")
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .take(15)
+            .collect();
+        out.push_str(&format!(
+            "--- crash {} min ago: {}\n{}\n",
+            age,
+            tag("ErrorMessage"),
+            stack.join("\n")
+        ));
     }
-    if out.is_empty() { "(no crash reports)\n".into() } else { out }
+    if out.is_empty() {
+        "(no crash reports)\n".into()
+    } else {
+        out
+    }
 }
 
 fn windows_version() -> String {
-    quiet(Command::new("cmd").args(["/c", "ver"])).output()
+    quiet(Command::new("cmd").args(["/c", "ver"]))
+        .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "?".into())
 }
@@ -337,7 +423,10 @@ struct Preview {
 }
 
 fn load_preview(dir: &Path) -> Result<Preview, String> {
-    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     load_preview_file(&dir.join("layout.json"), name)
 }
 
@@ -350,7 +439,11 @@ fn load_preview_file(file: &Path, name: String) -> Result<Preview, String> {
         .iter()
         .filter_map(|p| {
             let a = p.as_array()?;
-            Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?, a.get(2)?.as_f64()?])
+            Some([
+                a.first()?.as_f64()?,
+                a.get(1)?.as_f64()?,
+                a.get(2)?.as_f64()?,
+            ])
         })
         .collect();
     let mut s = vec![0.0];
@@ -360,7 +453,12 @@ fn load_preview_file(file: &Path, name: String) -> Result<Preview, String> {
     }
     let joins = v["pieces"]
         .as_array()
-        .map(|a| a.iter().skip(1).filter_map(|p| p["s_start"].as_f64()).collect())
+        .map(|a| {
+            a.iter()
+                .skip(1)
+                .filter_map(|p| p["s_start"].as_f64())
+                .collect()
+        })
         .unwrap_or_default();
     let sequence = v["pieces"]
         .as_array()
@@ -368,7 +466,11 @@ fn load_preview_file(file: &Path, name: String) -> Result<Preview, String> {
             a.iter()
                 .filter_map(|p| {
                     let id = p["segment"].as_str()?.rsplit('#').next()?.to_string();
-                    Some(if p["reversed"].as_bool().unwrap_or(false) { id + "r" } else { id })
+                    Some(if p["reversed"].as_bool().unwrap_or(false) {
+                        id + "r"
+                    } else {
+                        id
+                    })
                 })
                 .collect::<Vec<_>>()
                 .join(" ")
@@ -435,11 +537,24 @@ enum Tab {
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let prefs: Prefs = cc.storage.and_then(|s| eframe::get_value(s, eframe::APP_KEY)).unwrap_or_default();
-        let mut app = App { prefs, log: String::new(), job: None, preview: None, tab: Tab::Map,
-                            installed: vec![], blocked: false, code_input: String::new(), job_prefs: None,
-                            shown_installed: None, share_note: None };
-        app.preview = load_preview(&app.out_for(app.prefs.seed)).ok();     // reopen the last stage
+        let prefs: Prefs = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
+            .unwrap_or_default();
+        let mut app = App {
+            prefs,
+            log: String::new(),
+            job: None,
+            preview: None,
+            tab: Tab::Map,
+            installed: vec![],
+            blocked: false,
+            code_input: String::new(),
+            job_prefs: None,
+            shown_installed: None,
+            share_note: None,
+        };
+        app.preview = load_preview(&app.out_for(app.prefs.seed)).ok(); // reopen the last stage
         app.refresh_install_state();
         app
     }
@@ -453,14 +568,24 @@ impl App {
     }
 
     fn start(&mut self) {
-        let n = if self.using_sequence() { 1 } else { self.prefs.batch.max(1) };   // a sequence is one stage
+        let n = if self.using_sequence() {
+            1
+        } else {
+            self.prefs.batch.max(1)
+        }; // a sequence is one stage
         let seeds: Vec<u32> = (0..n).map(|i| self.prefs.seed + i).collect();
         self.log.clear();
         self.tab = Tab::Log;
         let (_, rx) = channel();
         let total = seeds.len();
         self.job_prefs = None;
-        self.job = Some(Job { rx, remaining: seeds, total, progress: 0.0, phase: "starting".into() });
+        self.job = Some(Job {
+            rx,
+            remaining: seeds,
+            total,
+            progress: 0.0,
+            phase: "starting".into(),
+        });
         self.next();
     }
 
@@ -473,19 +598,31 @@ impl App {
         p.launch = false;
         p.batch = 1;
         self.log.clear();
-        self.log.push_str(&format!("regenerating {}\n", inst.display.as_deref().unwrap_or(&inst.name)));
+        self.log.push_str(&format!(
+            "regenerating {}\n",
+            inst.display.as_deref().unwrap_or(&inst.name)
+        ));
         self.tab = Tab::Log;
         let (_, rx) = channel();
         let seed = p.seed;
         self.job_prefs = Some(p);
-        self.job = Some(Job { rx, remaining: vec![seed], total: 1, progress: 0.0, phase: "starting".into() });
+        self.job = Some(Job {
+            rx,
+            remaining: vec![seed],
+            total: 1,
+            progress: 0.0,
+            phase: "starting".into(),
+        });
         self.next();
     }
 
     /// Show an installed stage's map.
     fn show_installed(&mut self, inst: &Installed) {
         let Some(file) = &inst.layout else { return };
-        match load_preview_file(file, inst.display.clone().unwrap_or_else(|| inst.name.clone())) {
+        match load_preview_file(
+            file,
+            inst.display.clone().unwrap_or_else(|| inst.name.clone()),
+        ) {
             Ok(pv) => {
                 self.preview = Some(pv);
                 self.shown_installed = Some(inst.name.clone());
@@ -500,7 +637,11 @@ impl App {
     /// Launch the build for the next seed of the batch (install/launch only on the last).
     fn next(&mut self) {
         let Some(job) = self.job.as_mut() else { return };
-        let Some(seed) = (if job.remaining.is_empty() { None } else { Some(job.remaining.remove(0)) }) else {
+        let Some(seed) = (if job.remaining.is_empty() {
+            None
+        } else {
+            Some(job.remaining.remove(0))
+        }) else {
             self.job = None;
             return;
         };
@@ -508,10 +649,14 @@ impl App {
         let p = self.job_prefs.clone().unwrap_or_else(|| self.prefs.clone());
         let mut args: Vec<String> = vec![
             "build".into(),
-            "--level".into(), p.stage.clone(),
-            "--length".into(), format!("{:.0}", p.length_m),
-            "--seed".into(), seed.to_string(),
-            "--out".into(), p.out_dir.clone(),
+            "--level".into(),
+            p.stage.clone(),
+            "--length".into(),
+            format!("{:.0}", p.length_m),
+            "--seed".into(),
+            seed.to_string(),
+            "--out".into(),
+            p.out_dir.clone(),
         ];
         if p.use_sequence && !p.sequence.trim().is_empty() {
             args.push("--sequence".into());
@@ -520,12 +665,22 @@ impl App {
             args.push("--max-uses".into());
             args.push(p.max_uses.to_string());
         }
-        if !p.forest { args.push("--no-forest".into()); }
-        if !p.grass { args.push("--no-grass".into()); }
-        if !p.foliage { args.push("--no-foliage".into()); }
+        if !p.forest {
+            args.push("--no-forest".into());
+        }
+        if !p.grass {
+            args.push("--no-grass".into());
+        }
+        if !p.foliage {
+            args.push("--no-foliage".into());
+        }
         // every stage of a batch is installed (each gets its own menu entry); ACR starts after the last
-        if p.install { args.push("--install".into()); }
-        if last && p.install && p.launch { args.push("--launch".into()); }
+        if p.install {
+            args.push("--install".into());
+        }
+        if last && p.install && p.launch {
+            args.push("--launch".into());
+        }
         let paks = PathBuf::from(&p.acr_dir).join(r"acr\Content\Paks");
         args.push("--paks".into());
         args.push(paks.display().to_string());
@@ -534,7 +689,8 @@ impl App {
         job.rx = rx;
         job.progress = 0.0;
         job.phase = "starting".into();
-        self.log.push_str(&format!("\n=== {} seed {} ===\n", p.stage, seed));
+        self.log
+            .push_str(&format!("\n=== {} seed {} ===\n", p.stage, seed));
         match backend_cmd(&p) {
             Ok((prog, mut full, cwd)) => {
                 full.extend(args);
@@ -559,8 +715,11 @@ impl App {
         let want = self.prefs.block_online && !self.installed.is_empty();
         if want != self.blocked {
             match fw_set(&self.prefs.acr_dir, want) {
-                Ok(()) => self.log.push_str(if want { "ACR's internet access is blocked while the generated stage is installed.\n" }
-                                            else { "ACR's internet access is allowed again.\n" }),
+                Ok(()) => self.log.push_str(if want {
+                    "ACR's internet access is blocked while the generated stage is installed.\n"
+                } else {
+                    "ACR's internet access is allowed again.\n"
+                }),
                 Err(e) => self.log.push_str(&format!("firewall: {e}\n")),
             }
             self.blocked = fw_blocked();
@@ -571,27 +730,57 @@ impl App {
     fn export_bug_report(&self) -> Result<PathBuf, String> {
         let p = &self.prefs;
         let mut r = String::new();
-        r.push_str(&format!("ACR Remixer bug report\nversion: {VERSION}\nbackend: {}\nwindows: {}\n\n",
-            if p.use_python || BACKEND.is_none() { "python (development)" } else { "embedded" }, windows_version()));
+        r.push_str(&format!(
+            "ACR Remixer bug report\nversion: {VERSION}\nbackend: {}\nwindows: {}\n\n",
+            if p.use_python || BACKEND.is_none() {
+                "python (development)"
+            } else {
+                "embedded"
+            },
+            windows_version()
+        ));
         r.push_str(&format!("share code: {}\n", share_code(p)));
         let inst: Vec<&str> = self.installed.iter().map(|i| i.name.as_str()).collect();
-        r.push_str(&format!("installed stages: {}\nonline blocked: {}\n\n",
-            if inst.is_empty() { "none".to_string() } else { inst.join(", ") }, self.blocked));
+        r.push_str(&format!(
+            "installed stages: {}\nonline blocked: {}\n\n",
+            if inst.is_empty() {
+                "none".to_string()
+            } else {
+                inst.join(", ")
+            },
+            self.blocked
+        ));
         r.push_str("=== settings ===\n");
         r.push_str(&serde_json::to_string_pretty(p).unwrap_or_default());
         r.push_str("\n\n=== last stage ===\n");
         match &self.preview {
-            Some(pv) => r.push_str(&format!("{}: {:.2} km, {} pieces (joins at {:?} m), {} pacenotes\n",
-                pv.name, pv.length / 1000.0, pv.joins.len() + 1,
-                pv.joins.iter().map(|j| j.round()).collect::<Vec<_>>(), pv.notes)),
+            Some(pv) => r.push_str(&format!(
+                "{}: {:.2} km, {} pieces (joins at {:?} m), {} pacenotes\n",
+                pv.name,
+                pv.length / 1000.0,
+                pv.joins.len() + 1,
+                pv.joins.iter().map(|j| j.round()).collect::<Vec<_>>(),
+                pv.notes
+            )),
             None => r.push_str("(none loaded)\n"),
         }
         r.push_str("\n=== log of the last run ===\n");
-        r.push_str(if self.log.is_empty() { "(empty)\n" } else { &self.log });
+        r.push_str(if self.log.is_empty() {
+            "(empty)\n"
+        } else {
+            &self.log
+        });
         r.push_str("\n=== ACR crash reports (newest first) ===\n");
         r.push_str(&acr_crashes(3));
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let dir = if Path::new(&p.out_dir).is_dir() { PathBuf::from(&p.out_dir) } else { std::env::temp_dir() };
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let dir = if Path::new(&p.out_dir).is_dir() {
+            PathBuf::from(&p.out_dir)
+        } else {
+            std::env::temp_dir()
+        };
         let path = dir.join(format!("acr-remixer-bugreport-{stamp}.txt"));
         std::fs::write(&path, redact(&r)).map_err(|e| e.to_string())?;
         Ok(path)
@@ -600,14 +789,30 @@ impl App {
     /// Show the selected stage's pieces (for a sequence) in the log.
     fn list_segments(&mut self) {
         let p = self.prefs.clone();
-        self.log.push_str(&format!("\n=== pieces of {} ===\n", p.stage));
+        self.log
+            .push_str(&format!("\n=== pieces of {} ===\n", p.stage));
         self.tab = Tab::Log;
-        let paks = PathBuf::from(&p.acr_dir).join(r"acr\Content\Paks").display().to_string();
+        let paks = PathBuf::from(&p.acr_dir)
+            .join(r"acr\Content\Paks")
+            .display()
+            .to_string();
         match backend_cmd(&p) {
             Ok((prog, mut full, cwd)) => {
-                full.extend(["segments".to_string(), "--level".into(), p.stage.clone(), "--paks".into(), paks]);
+                full.extend([
+                    "segments".to_string(),
+                    "--level".into(),
+                    p.stage.clone(),
+                    "--paks".into(),
+                    paks,
+                ]);
                 let (tx, rx) = channel();
-                self.job = Some(Job { rx, remaining: vec![], total: 1, progress: 0.5, phase: "reading pieces".into() });
+                self.job = Some(Job {
+                    rx,
+                    remaining: vec![],
+                    total: 1,
+                    progress: 0.5,
+                    phase: "reading pieces".into(),
+                });
                 spawn_build(prog, cwd, full, None, tx);
             }
             Err(e) => self.log.push_str(&format!("backend: {e}\n")),
@@ -617,9 +822,15 @@ impl App {
     /// Remove one installed generated stage (by level name) or all of them.
     fn uninstall(&mut self, stage: Option<String>) {
         let p = self.prefs.clone();
-        self.log.push_str(&format!("\n=== uninstall {} ===\n", stage.as_deref().unwrap_or("all")));
+        self.log.push_str(&format!(
+            "\n=== uninstall {} ===\n",
+            stage.as_deref().unwrap_or("all")
+        ));
         self.tab = Tab::Log;
-        let paks = PathBuf::from(&p.acr_dir).join(r"acr\Content\Paks").display().to_string();
+        let paks = PathBuf::from(&p.acr_dir)
+            .join(r"acr\Content\Paks")
+            .display()
+            .to_string();
         match backend_cmd(&p) {
             Ok((prog, mut full, cwd)) => {
                 full.extend(["uninstall".to_string(), "--paks".into(), paks]);
@@ -627,7 +838,13 @@ impl App {
                     full.extend(["--stage".to_string(), s]);
                 }
                 let (tx, rx) = channel();
-                self.job = Some(Job { rx, remaining: vec![], total: 1, progress: 0.5, phase: "uninstalling".into() });
+                self.job = Some(Job {
+                    rx,
+                    remaining: vec![],
+                    total: 1,
+                    progress: 0.5,
+                    phase: "uninstalling".into(),
+                });
                 spawn_build(prog, cwd, full, None, tx);
             }
             Err(e) => self.log.push_str(&format!("backend: {e}\n")),
@@ -683,10 +900,17 @@ fn backend_cmd(p: &Prefs) -> Result<(String, Vec<String>, String), String> {
         if !Path::new(&p.backend_dir).join("stagegen").is_dir() {
             return Err(format!("no stagegen package in {:?}", p.backend_dir));
         }
-        return Ok((p.python.clone(), vec!["-m".into(), "stagegen.cli".into()], p.backend_dir.clone()));
+        return Ok((
+            p.python.clone(),
+            vec!["-m".into(), "stagegen.cli".into()],
+            p.backend_dir.clone(),
+        ));
     }
     let exe = embedded_backend()?;
-    let cwd = exe.parent().map(|d| d.display().to_string()).unwrap_or_default();
+    let cwd = exe
+        .parent()
+        .map(|d| d.display().to_string())
+        .unwrap_or_default();
     Ok((exe.display().to_string(), vec![], cwd))
 }
 
@@ -719,7 +943,13 @@ fn forward_pipe_lines<R: std::io::Read>(reader: R, mut forward: impl FnMut(Strin
     }
 }
 
-fn spawn_build(python: String, cwd: String, args: Vec<String>, out: Option<PathBuf>, tx: Sender<Msg>) {
+fn spawn_build(
+    python: String,
+    cwd: String,
+    args: Vec<String>,
+    out: Option<PathBuf>,
+    tx: Sender<Msg>,
+) {
     std::thread::spawn(move || {
         use std::os::windows::process::CommandExt;
         let child = Command::new(&python)
@@ -814,7 +1044,11 @@ impl eframe::App for App {
         let mut block_changed = false;
         let mut want_segments = false;
         let mut inst_action: Option<InstAction> = None;
-        let pv_seq = self.preview.as_ref().map(|pv| pv.sequence.clone()).filter(|s| !s.is_empty());
+        let pv_seq = self
+            .preview
+            .as_ref()
+            .map(|pv| pv.sequence.clone())
+            .filter(|s| !s.is_empty());
         egui::SidePanel::left("opts").min_width(330.0).show(ctx, |ui| {
           egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.heading("ACR Remixer");
@@ -1059,8 +1293,10 @@ impl eframe::App for App {
             Some(InstAction::Load(i)) => {
                 if let Some(params) = &i.params {
                     self.prefs = prefs_with_params(&self.prefs, params);
-                    self.log.push_str(&format!("settings of {} loaded into the form\n",
-                                               i.display.as_deref().unwrap_or(&i.name)));
+                    self.log.push_str(&format!(
+                        "settings of {} loaded into the form\n",
+                        i.display.as_deref().unwrap_or(&i.name)
+                    ));
                 }
                 self.show_installed(&i);
             }
@@ -1091,36 +1327,68 @@ impl eframe::App for App {
             ui.separator();
             match self.tab {
                 Tab::Log => {
-                    egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false; 2]).show(ui, |ui| {
-                        ui.add(egui::Label::new(egui::RichText::new(&self.log).monospace()).wrap());
-                    });
+                    egui::ScrollArea::vertical()
+                        .stick_to_bottom(true)
+                        .auto_shrink([false; 2])
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(&self.log).monospace()).wrap(),
+                            );
+                        });
                 }
                 Tab::Map | Tab::Elevation if self.preview.is_none() => {
-                    ui.centered_and_justified(|ui| ui.label("Generate a stage (or open the last one) to see it here."));
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Generate a stage (or open the last one) to see it here.")
+                    });
                 }
                 Tab::Map => {
                     let pv = self.preview.as_ref().unwrap();
-                    Plot::new("map").data_aspect(1.0).legend(Legend::default()).show(ui, |pu| {
-                        let mut bounds = vec![0.0];
-                        bounds.extend(pv.joins.iter().copied());
-                        bounds.push(f64::INFINITY);
-                        for (k, w) in bounds.windows(2).enumerate() {
-                            let pts: Vec<[f64; 2]> = pv.pts.iter().zip(&pv.s)
-                                .filter(|(_, s)| **s >= w[0] - 10.0 && **s <= w[1] + 10.0)
-                                .map(|(p, _)| [p[0], p[1]]).collect();
-                            pu.line(Line::new(PlotPoints::from(pts)).width(3.0_f32).name(format!("piece {k}")));
-                        }
-                        if let (Some(a), Some(b)) = (pv.pts.first(), pv.pts.last()) {
-                            pu.points(egui_plot::Points::new(vec![[a[0], a[1]]]).radius(6.0_f32).name("start"));
-                            pu.points(egui_plot::Points::new(vec![[b[0], b[1]]]).radius(6.0_f32).shape(egui_plot::MarkerShape::Square).name("finish"));
-                        }
-                    });
+                    Plot::new("map")
+                        .data_aspect(1.0)
+                        .legend(Legend::default())
+                        .show(ui, |pu| {
+                            let mut bounds = vec![0.0];
+                            bounds.extend(pv.joins.iter().copied());
+                            bounds.push(f64::INFINITY);
+                            for (k, w) in bounds.windows(2).enumerate() {
+                                let pts: Vec<[f64; 2]> = pv
+                                    .pts
+                                    .iter()
+                                    .zip(&pv.s)
+                                    .filter(|(_, s)| **s >= w[0] - 10.0 && **s <= w[1] + 10.0)
+                                    .map(|(p, _)| [p[0], p[1]])
+                                    .collect();
+                                pu.line(
+                                    Line::new(PlotPoints::from(pts))
+                                        .width(3.0_f32)
+                                        .name(format!("piece {k}")),
+                                );
+                            }
+                            if let (Some(a), Some(b)) = (pv.pts.first(), pv.pts.last()) {
+                                pu.points(
+                                    egui_plot::Points::new(vec![[a[0], a[1]]])
+                                        .radius(6.0_f32)
+                                        .name("start"),
+                                );
+                                pu.points(
+                                    egui_plot::Points::new(vec![[b[0], b[1]]])
+                                        .radius(6.0_f32)
+                                        .shape(egui_plot::MarkerShape::Square)
+                                        .name("finish"),
+                                );
+                            }
+                        });
                 }
                 Tab::Elevation => {
                     let pv = self.preview.as_ref().unwrap();
                     Plot::new("elev").show(ui, |pu| {
-                        let pts: Vec<[f64; 2]> = pv.pts.iter().zip(&pv.s).map(|(p, s)| [*s, p[2]]).collect();
-                        pu.line(Line::new(PlotPoints::from(pts)).width(2.0_f32).name("elevation (m)"));
+                        let pts: Vec<[f64; 2]> =
+                            pv.pts.iter().zip(&pv.s).map(|(p, s)| [*s, p[2]]).collect();
+                        pu.line(
+                            Line::new(PlotPoints::from(pts))
+                                .width(2.0_f32)
+                                .name("elevation (m)"),
+                        );
                         for j in &pv.joins {
                             pu.vline(VLine::new(*j).name("join"));
                         }
@@ -1133,11 +1401,17 @@ impl eframe::App for App {
 
 fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1100.0, 700.0]).with_title("ACR Remixer"),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1100.0, 700.0])
+            .with_title("ACR Remixer"),
         ..Default::default()
     };
     // the app id stays "acr-stagegen": eframe stores the saved settings under it
-    eframe::run_native("acr-stagegen", opts, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+    eframe::run_native(
+        "acr-stagegen",
+        opts,
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+    )
 }
 
 #[cfg(test)]

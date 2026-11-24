@@ -13,7 +13,11 @@ fn steam_root() -> Option<PathBuf> {
     use winreg::RegKey;
     let tries = [
         (HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Valve\Steam",
+            "InstallPath",
+        ),
         (HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam", "InstallPath"),
     ];
     for (hive, key, val) in tries {
