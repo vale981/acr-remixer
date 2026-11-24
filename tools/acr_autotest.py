@@ -51,12 +51,19 @@ def main():
     ap.add_argument("--stop-at-fp", action="store_true", help="stop on the Free Practice screen (menu mapping)")
     ap.add_argument("--from-fp", action="store_true", help="game already on the Free Practice screen: just run")
     ap.add_argument(
+        "--in-car",
+        action="store_true",
+        help="game already in the car on the stage (tour points must have been written before entering it)",
+    )
+    ap.add_argument(
         "--select",
         default=None,
         metavar="R,T",
         help="pick rally #R (Alsace=1 ... Wales=6 with one mod rally first) and stage tile #T first",
     )
     a = ap.parse_args()
+    if a.in_car:
+        a.from_fp = True  # no restart or menus; after_fp skips "Start Session"
     import vgamepad as vg
     from acr_harness import BUTTONS, focus, kill
 
@@ -187,9 +194,10 @@ def after_fp(a, py, press, pad, fp):
     session, get into the car, drive off the line, run the tour."""
     from acr_harness import focus
 
-    time.sleep(2)
-    press("DOWN", 2)
-    press("A")  # Start Session
+    if not getattr(a, "in_car", False):
+        time.sleep(2)
+        press("DOWN", 2)
+        press("A")  # Start Session
     t0 = time.time()
     while "IN_CAR" not in ui():  # service park: A starts the stage
         if time.time() - t0 > 300:
