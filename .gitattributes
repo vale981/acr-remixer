@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Text files are stored and checked out with LF line endings on every
+# platform (Windows editors and tools must not turn them into CRLF).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pak binary
+*.dll binary
+*.exe binary

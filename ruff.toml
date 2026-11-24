@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Formatting and linting: `ruff format` and `ruff check` (CI checks both).
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E4", "E7", "E9", "F"]   # ruff's defaults: syntax errors, undefined names, unused imports/variables
