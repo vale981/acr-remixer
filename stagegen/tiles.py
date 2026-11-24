@@ -331,11 +331,9 @@ def join_shears(best: TState, cfg: TileSearchConfig) -> tuple[list[list], dict]:
             min_normal_component=cfg.min_boundary_crossing_cos,
         )
         if sa is None or sb is None:
-            raise ValueError(
-                f"join {k - 1}->{k} cannot be safely smoothed: kink {kink:.1f} deg "
-                f"or boundary crossing is too oblique (minimum normal component "
-                f"{cfg.min_boundary_crossing_cos:.2f})"
-            )
+            # too sharp or too oblique to smooth safely: the join stays rigid
+            # (a given sequence is built anyway and already warned about it)
+            continue
         out[k - 1].append(sa)
         out[k].append(sb)
         smoothed[k] = max(D_a, D_b)

@@ -46,3 +46,13 @@ def test_manual_sequence_warns_for_road_width_step_above_limit():
     stage, cuts, ranges, cfg = _sequence_fixture(join_line=0.0, join_heading=np.pi / 2, join_width=9.1)
     _, warns = sequence_state(stage, ranges, cuts, cfg, [(0, 1, False), (2, 3, False)])
     assert any("road width step" in w for w in warns)
+
+
+def test_too_sharp_join_stays_rigid_instead_of_failing():
+    """A sequence join over the smoothing limit is built anyway: no shear, no error."""
+    from stagegen.tiles import smooth_layout_points
+
+    stage, cuts, ranges, cfg = _sequence_fixture(join_line=np.pi / 2, join_heading=0.0, prev_heading=np.deg2rad(30))
+    best, warns = sequence_state(stage, ranges, cuts, cfg, [(0, 1, False), (2, 3, False)])
+    shears, smoothed = smooth_layout_points(best, cfg)
+    assert smoothed == {} and all(not s for s in shears)
