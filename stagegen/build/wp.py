@@ -671,7 +671,7 @@ def build_wp_stage(
         dz = np.zeros(len(P))
         if cfg.seam_width <= 0:
             return dz
-        d_j, _ = tree_new[j].query(P[:, :2], workers=-1)
+        d_j, _ = tree_new[j].query(P[:, :2])
         # w > 0 needs d_b < d_j + 2 seam_width: pieces whose road is farther from
         # every point contribute nothing (skipped), and queries stop at that bound
         # (an infinite distance gives w = 0, as the exact one would)
@@ -683,7 +683,7 @@ def build_wp_stage(
             lo_b, hi_b = piece_box[b]
             if np.any(lo_b - reach > hi_p) or np.any(hi_b + reach < lo_p):
                 continue
-            d_b, _ = tree_new[b].query(P[:, :2], distance_upper_bound=reach, workers=-1)
+            d_b, _ = tree_new[b].query(P[:, :2], distance_upper_bound=reach)
             w = np.clip(1.0 - (d_b - d_j) / 2.0 / cfg.seam_width, 0.0, 1.0)
             near = w > 0
             if not near.any():
@@ -1849,7 +1849,7 @@ def _road_steps(out_meshes, new_cl, lats=(-2.0, 0.0, 2.0), max_jump=0.4, step=1.
         T = V[np.asarray(mo.indices).reshape(-1, 3)]
         c = T[:, :, :2].mean(1)
         r = np.linalg.norm(T[:, :, :2] - c[:, None, :], axis=2).max(1)
-        d, _ = route_tree.query(c, workers=-1)
+        d, _ = route_tree.query(c)
         tris.append(T[d <= lat_max + 1.0 + r])
     if not tris:
         return []
