@@ -38,7 +38,7 @@ from ..geometry import arclength, headings, resample, rot_z
 from ..layout import Layout
 from ..pacenotes import generate
 from ..tiles import Cut, TileGrid, TState
-from ..joins import seam_edge_weights, source_aligned_edge_interval
+
 from . import writers as W
 from .cityhash import name_hash
 from . import container_header as CH
@@ -470,29 +470,6 @@ def build_wp_stage(
         for k, s in enumerate(states)
     ]
 
-    # One finite shared tile edge per consecutive piece pair. The original
-    # implementation blended every piece against every other piece based only
-    # on route proximity, which can pull unrelated terrain together at loops,
-    # crossings and overpasses. These edge records identify the actual source
-    # grid boundary that the placement aligned.
-    seam_edges = []
-    for k in range(1, len(states)):
-        prev = states[k - 1]
-        cut = cuts[prev.exit]
-        if cut.kind != "cross":
-            continue
-        if abs(np.sin(cut.line)) > abs(np.cos(cut.line)):
-            coord0, grid0 = float(cut.p[1]), float(grid.y0)
-        else:
-            coord0, grid0 = float(cut.p[0]), float(grid.x0)
-        # q is measured along the transformed source-positive grid axis.  Do
-        # not flip it when e points toward negative world X/Y: the rigid map
-        # already carries that orientation.
-        q0, q1 = source_aligned_edge_interval(coord0, grid0, grid.cell)
-        p0 = np.asarray(prev.exit_p, dtype=np.float64) + offset
-        e = np.array([np.cos(prev.exit_line), np.sin(prev.exit_line)], dtype=np.float64)
-        seam_edges.append((k - 1, k, p0, e, q0, q1))
-
     def warp(j, P):
         """Join smoothing of piece j applied to world points (N,2|3), metres."""
         P = np.atleast_2d(np.asarray(P, np.float64))
@@ -682,26 +659,31 @@ def build_wp_stage(
         return np.where(conf > 0, h, np.nan), conf
 
     def seam_dz(j, P_new_m):
-        """Height correction only at the finite tile edge shared with a neighbour."""
+        """Vertical correction (m) for points of piece j at new-layout positions:
+        blended towards every piece whose road is about as near (Voronoi edge).
+
+        Limiting this to the tile edge two consecutive pieces share (tried in
+        8f750d9) left terrain of a neighbouring tile 9 m above the road 90-160 m
+        before a join (Hafren South, pieces 0-5 9-11 11-14 15-19): undrivable.
+        Blending by road proximity pulls that terrain down, as before."""
         P = np.atleast_2d(P_new_m)
         dz = np.zeros(len(P))
         if cfg.seam_width <= 0:
             return dz
-        for a, b, p0, e, q0, q1 in seam_edges:
-            if j == a:
-                other = b
-            elif j == b:
-                other = a
-            else:
+        d_j, _ = tree_new[j].query(P[:, :2])
+        for b in range(len(pieces)):
+            if b == j:
                 continue
-            mask, w = seam_edge_weights(P, p0, e, q0, q1, cfg.seam_width)
-            if not mask.any():
+            d_b, _ = tree_new[b].query(P[:, :2])
+            w = np.clip(1.0 - (d_b - d_j) / 2.0 / cfg.seam_width, 0.0, 1.0)
+            near = w > 0
+            if not near.any():
                 continue
-            zb, conf = surface_z(other, P[mask, :2])
-            ok = np.isfinite(zb) & (conf > 0)
-            if ok.any():
-                ii = np.flatnonzero(mask)[ok]
-                dz[ii] += w[ii] * conf[ok] * (zb[ok] - P[ii, 2]) / 2.0
+            w = w * w * (3 - 2 * w)
+            zb, conf = surface_z(b, P[near, :2])
+            ok = np.isfinite(zb)
+            idx = np.flatnonzero(near)[ok]
+            dz[idx] += w[idx] * conf[ok] * (zb[ok] - P[idx, 2]) / 2.0
         return dz
 
     bd_re = re.compile(rf"SM_{lvl}Terrain\d{{4}}$")
@@ -1288,9 +1270,8 @@ def build_wp_stage(
         rep.checks.append(f"unused tiles: {n_un} meshes hidden ({len(set(tile_pivot) - set(tile_piece))} tiles)")
     n_sh = sum(len(pc.shears) for pc in pieces) // 2
     rep.checks.append(
-        f"seams: {len(seam_edges)} finite adjacent tile edge(s); tile vertices moved up to "
-        f"{seam_max:.1f} m (height blending within {cfg.seam_width:.0f} m of each shared edge"
-        + (f", {n_sh} join(s) smoothed)" if n_sh else ")")
+        f"seams: tile vertices moved up to {seam_max:.1f} m (height blending within "
+        f"{cfg.seam_width:.0f} m of piece boundaries" + (f", {n_sh} join(s) smoothed)" if n_sh else ")")
     )
 
     def bd_keep_world(w_m):
