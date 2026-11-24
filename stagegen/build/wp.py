@@ -163,13 +163,27 @@ class _Assign:
         return k, d, s, idx
 
 
-FOLIAGE_OWNERS = ("PCGPartitionActor", "PCGGrassContainer", "InstancedFoliageActor")
+FOLIAGE_OWNERS = ("PCGPartitionActor", "PCGGrassContainer", "InstancedFoliageActor", "PCGStamp")
+# instanced trees in the main level whose root is the world origin (stored as
+# default, so it isn't decoded): their instance positions are world positions
+ROOTLESS_TREES = ("HLODTrees", "BP_TreelinesContainer")
+# report label per kind of tree container moved like the forest
+TREE_LABELS = {
+    "HLODTrees": "distant (HLOD) trees",
+    "BP_TreelinesContainer": "treelines (distant ridges)",
+    "PCGStamp": "stamped trees",
+}
 
 
 def _foliage_mode(cfg, owner: str, name: str):
     """'move' / 'hide' for an instanced foliage component, None for anything else."""
     if owner.startswith("PCGPartitionActor"):
         return cfg.forest if name.startswith(("HISM_", "ISM_")) else None
+    if owner.startswith(ROOTLESS_TREES + ("PCGStamp",)):
+        # more trees: the forest's distant HLOD stand-ins (one per real tree),
+        # treelines on distant ridges, stamped groups: they follow the forest,
+        # else they float where the terrain used to be
+        return cfg.forest
     if owner.startswith("PCGGrassContainer"):
         return cfg.grass
     if owner.startswith("InstancedFoliageActor"):
@@ -975,15 +989,22 @@ def build_wp_stage(
 
         # PCG forest (HISM trees on PCGPartitionActors, positions relative to the
         # actor root): each tree moves with the piece owning its spot, if that
-        # piece's terrain is under it; the rest are hidden
+        # piece's terrain is under it; the rest are hidden. The distant HLOD
+        # trees (HLODTrees actors in the main level) are the same trees: root at
+        # the origin (stored as default, so not decoded), world positions
         if True:
             for i, e in enumerate(ex):
-                if e.outer not in pcg_roots or _foliage_mode(cfg, ex[e.outer].name, e.name) != "move":
+                own_name = ex[e.outer].name if 0 <= e.outer < len(ex) else ""
+                root = pcg_roots.get(e.outer)
+                if root is None and own_name.startswith(ROOTLESS_TREES):
+                    root = np.zeros(3)
+                if root is None or _foliage_mode(cfg, own_name, e.name) != "move":
                     continue
+                label = next((v for k, v in TREE_LABELS.items() if own_name.startswith(k)), None)
                 try:
                     nb, st = move_hism(
                         pk.export_bytes(e),
-                        pcg_roots[e.outer],
+                        root,
                         lambda W, source_yaw, layer=layer: place_trees(W, source_yaw, layer),
                     )
                 except Exception as ex_:  # layout not understood: hide instead
@@ -997,9 +1018,13 @@ def build_wp_stage(
                         # instances are relative to the owner's root: in a copy
                         # it must stay where it is, not be parked with the unused
                         touched.add(pcg_root_comp[e.outer])
-                    rep.moved["forest trees" if layer == 0 else "forest trees (copies)"] += st["kept"]
-                    if layer == 0:
-                        rep.moved["forest trees hidden"] += st["n"] - st["kept"]
+                    if label:
+                        rep.moved[label] += st["kept"]
+                        rep.moved[f"{label} hidden"] += st["n"] - st["kept"]
+                    else:
+                        rep.moved["forest trees" if layer == 0 else "forest trees (copies)"] += st["kept"]
+                        if layer == 0:
+                            rep.moved["forest trees hidden"] += st["n"] - st["kept"]
                     if st.get("boxes", 0) == 0:
                         forest_nobox[0] += 1
         if layer:
@@ -1952,7 +1977,7 @@ def verify_wp(
             and not (
                 0 <= pk.exports[i].outer < len(pk.exports)
                 and pk.exports[pk.exports[i].outer].name.startswith(
-                    ("InstancedFoliageActor", "PCGGrassContainer", "PCGPartitionActor")
+                    ("InstancedFoliageActor", "PCGGrassContainer", "PCGPartitionActor", "PCGStamp", *ROOTLESS_TREES)
                 )
             )
         ]
