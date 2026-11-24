@@ -25,7 +25,10 @@ jobs:
       - name: Python dependencies
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
 
+      # bash, not the Windows default PowerShell: PowerShell only reports the
+      # exit code of the last command, so an earlier failing check passed
       - name: Formatting and lint (ruff)
+        shell: bash
         run: |
           python -m ruff format --check stagegen tests tools packaging
           python -m ruff check stagegen tests tools packaging
@@ -40,6 +43,7 @@ jobs:
           workspaces: gui
 
       - name: Rust formatting
+        shell: bash
         run: |
           cargo fmt --manifest-path gui/Cargo.toml --check
           cargo fmt --manifest-path oodle_shim/Cargo.toml --check
