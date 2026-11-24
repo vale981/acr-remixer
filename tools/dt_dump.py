@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Dump the rows of a cooked DataTable: row names, row sizes and the raw bytes
 with likely FName references (i32 name index + i32 number) resolved.

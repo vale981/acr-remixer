@@ -3,7 +3,7 @@
 [![Download](https://img.shields.io/badge/download-newest%20build-2ea44f?logo=github)](../../releases)
 [![Latest release](https://img.shields.io/github/v/release/vale981/acr-remixer?label=release)](../../releases/latest)
 [![Nightly build](https://github.com/vale981/acr-remixer/actions/workflows/nightly.yml/badge.svg)](../../actions/workflows/nightly.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 [![REUSE status](https://api.reuse.software/badge/github.com/vale981/acr-remixer)](https://api.reuse.software/info/github.com/vale981/acr-remixer)
 ![Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)
 ![Assetto Corsa Rally](https://img.shields.io/badge/game-Assetto%20Corsa%20Rally%20(unofficial)-c0392b)
@@ -224,14 +224,23 @@ Want to be on this list? See [contributions welcome](#contributing).
 
 ## License
 
-[MIT](LICENSE): © 2026 hiro98 (vale981) and the ACR Remixer contributors.
-Use, change and share it freely, including in your own projects; just keep the
-copyright notice and the license text (that's the attribution).
+[GNU GPL v3 or later](LICENSE): © 2026 hiro98 (vale981) and the ACR Remixer
+contributors. ACR Remixer is free software: use it, study it, change it and
+share it. If you distribute it, changed or not, you have to pass on the same
+freedoms: keep the copyright notices, mark your changes, and make the complete
+source available under the GPL. Improvements are very welcome back here as
+pull requests (see [contributions welcome](#contributing)). It comes without
+any warranty.
+
+Versions up to and including v0.1.2 were released under the MIT license and
+remain available under it. Contributions received under MIT (by iceone88)
+keep their MIT notice; the files containing them say `GPL-3.0-or-later AND
+MIT`, and the MIT text is in `LICENSES/MIT.txt`.
 
 This covers ACR Remixer's own code only. It contains no game files: everything
 it builds comes from your own copy of Assetto Corsa Rally. The in-game
 screenshots in `docs/` show the game's content, which belongs to its owners and
-is not under the MIT license. Every file's license is recorded following the
+is not under these licenses. Every file's license is recorded following the
 [REUSE](https://reuse.software) specification (SPDX headers, `REUSE.toml`,
 `LICENSES/`). Third-party parts
 keep their own licenses, e.g. [oozextract](https://crates.io/crates/oozextract)

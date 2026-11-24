@@ -10,4 +10,4 @@
 - [ ] The build report shows no new problems (drivability, "fail to re-decode", filler coverage)
 - [ ] Driven in the game (if it changes what gets built)
 
-<!-- By contributing you agree that your contribution is licensed under the MIT license of this project. -->
+<!-- By contributing you agree that your contribution is licensed under the GPL-3.0-or-later license of this project. -->

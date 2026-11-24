@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """IoStore containers: write synthetic ones, read them back with the real reader."""
 from __future__ import annotations

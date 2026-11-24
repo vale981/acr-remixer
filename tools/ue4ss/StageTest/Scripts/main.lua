@@ -1,5 +1,5 @@
 -- SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
--- SPDX-License-Identifier: MIT
+-- SPDX-License-Identifier: GPL-3.0-or-later
 
 -- StageTest (acr-stagegen): camera tour of a generated stage for screenshots.
 --  * when the player is in a car, waits ~10 s, switches to the debug camera

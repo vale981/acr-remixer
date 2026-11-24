@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
 # SPDX-FileCopyrightText: 2026 iceone88
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later AND MIT
 
 """Polyline helpers. Coordinates are metres, x/y horizontal, z up."""
 from __future__ import annotations

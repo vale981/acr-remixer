@@ -1,5 +1,5 @@
 ﻿# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Drive a generated stage in ACR along its own CenterSpline (virtual pad +
 Kunos shared-memory telemetry) and report how far the car got.

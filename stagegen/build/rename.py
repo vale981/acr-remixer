@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Rename things inside a cooked zen package (UE 5.6), e.g. to duplicate a
 level under a new name:

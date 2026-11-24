@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
 // SPDX-FileCopyrightText: 2026 iceone88
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later AND MIT
 
 //! ACR Remixer GUI (egui; formerly acr-stagegen). Phase 1: drives the Python pipeline
 //! (`python -m stagegen.cli build ...`) and previews the result; the pipeline is
@@ -1037,6 +1037,13 @@ impl eframe::App for App {
                     }
                 }
                 ui.small(format!("ACR Remixer {VERSION}"));
+            });
+            ui.add_space(6.0);
+            ui.small(format!("ACR Remixer {VERSION} · © 2026 hiro98 (vale981) and contributors"));
+            ui.horizontal(|ui| {
+                ui.small("Free software under the GNU GPL v3 or later, without any warranty.");
+                ui.hyperlink_to(egui::RichText::new("License").small(),
+                                "https://github.com/vale981/acr-remixer/blob/main/LICENSE");
             });
           });
         });

@@ -3,7 +3,7 @@ name = "oodle_shim"
 version = "0.1.0"
 edition = "2021"
 description = "OodleLZ_Decompress-compatible DLL backed by the open-source oozextract decompressor"
-license = "MIT"
+license = "GPL-3.0-or-later"
 
 [lib]
 name = "oo2core_shim"

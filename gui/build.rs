@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Embed the frozen backend (packaging/dist/stagegen-backend.exe) when it has
 //! been built; without it the GUI runs the Python backend (development).

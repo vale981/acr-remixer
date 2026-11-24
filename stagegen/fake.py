@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Synthetic 'source stages' for developing the generator before real data
 is extracted. Roads are built from a curvature program (straights, corners

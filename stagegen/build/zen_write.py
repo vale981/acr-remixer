@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Rewrite cooked zen packages: replace export payloads and (optionally) append
 names to the name map. Everything else in the header is carried over."""

@@ -1,5 +1,5 @@
 -- SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
--- SPDX-License-Identifier: MIT
+-- SPDX-License-Identifier: GPL-3.0-or-later
 
 -- StageDump (acr-stagegen): list functions/classes that look like session or
 -- stage start entry points, to find what the Free Practice menu calls.

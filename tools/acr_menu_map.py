@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Press a gamepad step sequence and log the active CommonUI screens (ui2.txt
 from the StageTest live reporter) after each step. Used to map the menu path."""

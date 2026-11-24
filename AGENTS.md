@@ -1,6 +1,6 @@
 <!--
 SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
 # Notes for coding agents
@@ -76,10 +76,13 @@ For a pull request:
   marked `@pytest.mark.game` (skipped without an install); CI runs only
   `-m "not game"`, so no game data reaches CI logs. Add synthetic tests for new
   parsing/geometry code, game tests for behaviour on real levels.
-- **Licensing:** MIT, REUSE-compliant. New source files start with the same
-  two SPDX header lines as the existing ones (copyright "2026 hiro98
-  (vale981) and the ACR Remixer contributors", license MIT); check with
-  `reuse lint`.
+- **Licensing:** GPL-3.0-or-later, REUSE-compliant. New source files start
+  with the same SPDX header lines as the existing ones (copyright "2026
+  hiro98 (vale981) and the ACR Remixer contributors", license
+  GPL-3.0-or-later); someone who writes substantial code in a file adds their
+  own copyright line there. Check with `reuse lint`. A fork that is
+  distributed must stay under the GPL with its source available, which is
+  one more reason to bring changes back upstream instead.
 - **Changes to what gets built** (`stagegen/build/`): check the build report
   (`drivability`, `road surface`, `fail to re-decode`) and, when possible,
   drive or camera-tour the stage in the game.

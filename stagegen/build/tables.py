@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Add entries to the game's track tables (cooked DataTables, unversioned):
 a generated stage gets its own rows, made from the source stage's rows.

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
 # SPDX-FileCopyrightText: 2026 iceone88
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later AND MIT
 
 """Build a recombined base-game (World Partition) stage as a mod container.
 

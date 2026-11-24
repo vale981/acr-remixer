@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Fully automatic in-game test of a built stage: install, launch ACR, drive the
 menus with a virtual pad (waiting for each screen change reported by the
