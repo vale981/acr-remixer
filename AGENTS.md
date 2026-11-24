@@ -72,6 +72,11 @@ For a pull request:
   textures, meshes or dumps from Assetto Corsa Rally; generated stages are
   built on the player's PC from their own copy. Screenshots for docs are
   marked as game content in `REUSE.toml`.
+- **Formatting:** before committing, run `python -m ruff format` and
+  `python -m ruff check` (config in `ruff.toml`) and `cargo fmt` for Rust;
+  CI fails otherwise. Text files are LF (`.gitattributes`); don't let a tool
+  rewrite a whole file's line endings, and keep diffs to the lines you mean
+  to change.
 - **Tests:** `python -m pytest tests`. Anything that reads the game install is
   marked `@pytest.mark.game` (skipped without an install); CI runs only
   `-m "not game"`, so no game data reaches CI logs. Add synthetic tests for new

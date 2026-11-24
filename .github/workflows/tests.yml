@@ -25,6 +25,11 @@ jobs:
       - name: Python dependencies
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Formatting and lint (ruff)
+        run: |
+          python -m ruff format --check stagegen tests tools packaging
+          python -m ruff check stagegen tests tools packaging
+
       - name: Python tests (synthetic)
         run: python -m pytest tests -m "not game" -q
 
@@ -33,6 +38,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: gui
+
+      - name: Rust formatting
+        run: |
+          cargo fmt --manifest-path gui/Cargo.toml --check
+          cargo fmt --manifest-path oodle_shim/Cargo.toml --check
 
       - name: GUI tests
         run: cargo test --manifest-path gui/Cargo.toml

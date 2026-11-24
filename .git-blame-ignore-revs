@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2026 hiro98 (vale981) and the ACR Remixer contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Bulk formatting commits, skipped by `git blame` (GitHub reads this file;
+# locally: git config blame.ignoreRevsFile .git-blame-ignore-revs).
+
+# Format all Python code with ruff
+5e8ea228a99b0a92ba52404d5ff0a4e4e641ac7c
