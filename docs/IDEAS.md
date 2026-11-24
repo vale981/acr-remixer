@@ -109,6 +109,22 @@ step: one synthetic connector piece between two real pieces, lofted from
   7-11, then the finish piece) looks blotchier and whiter than elsewhere:
   compare with the same stretch of the original stage before treating it as
   a fault.
+- **Long Elatia stage with repeats stays on the loading screen**: the 13.4 km
+  share code `R2:GreeceS3Elatia:0-1021,...:FGL:37e5:3Y` (27 copied cells)
+  builds cleanly, but ACR keeps loading with CPU busy and memory flat. A
+  3.5 km Elatia stage with one repeated piece (15 copied cells) loads and
+  drives. Next: an 11 km Elatia stage without repeats (is it length?), then
+  narrow down the long layout (fewer copies, single pieces).
+- **Bump before a join** (same 13.4 km stage, 11,994-11,997 m): the road
+  rises 1.5 m over 20 m before the join at 12,011 m and drops 1.3 m over
+  4 m. The height blending doesn't even out this join.
+- **Step check measures the wrong ground there**: it only counts collision at
+  most 1.5 m above the route line; where the road itself is higher, it falls
+  back to the filler 8 m below and reports an 8 m pit. It should find the
+  road surface first.
+- **Floating terrain slivers on Greece**: strips of hillside and dark streaks
+  in the sky (Elatia, 1.0 and 1.3 km). On Hafren South hiding the background
+  meshes fixed this; Greece has distant terrain the filter doesn't catch.
 - **acr_autotest's automatic menu path** stalls at the title screen now and
   then ("title screen does not react"), and doesn't check which stage Free
   Practice loaded: a wrong stage gave a tour of empty space. Ideas: retry
