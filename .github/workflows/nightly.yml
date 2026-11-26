@@ -100,6 +100,9 @@ jobs:
             "",
             "Bugs and ideas welcome: open an issue (the window's *Bug report -> Export bug report* helps)."
           ) -join "`n"
+          # what's new in this version, written by hand (optional)
+          $extra = "docs/release-notes/$tag.md"
+          if (Test-Path $extra) { $notes = (Get-Content -Raw $extra) + "`n`n" + $notes }
           gh release create $tag dist/acr-remixer.exe --verify-tag --title "ACR Remixer $tag" --notes "$notes" --generate-notes
 
       - name: Publish the nightly pre-release

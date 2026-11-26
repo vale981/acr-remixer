@@ -16,6 +16,7 @@ path = [
     "FINDINGS.md",
     "REUSE.toml",
     "docs/gui-*.png",
+    "docs/release-notes/**",
     "stagegen/build/empty_mod.pak",
 ]
 precedence = "aggregate"
