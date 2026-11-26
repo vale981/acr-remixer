@@ -549,24 +549,107 @@ def sequence_state(
 
 
 def segment_table(stage: SourceStage, ranges: list[Range], cuts: list[Cut]) -> dict:
-    """For the GUI: cuts and the pieces between them (source xy for a preview)."""
+    """Return full stock-route geometry, atomic map sections and build candidates.
+
+    ``sections`` contains every consecutive cut-to-cut interval, even when it is
+    too short or otherwise unsuitable for a generated sequence. ``pieces``
+    contains only intervals accepted by ``make_ranges`` and can be used by the
+    manual sequence builder. Coordinates are world-space metres (X, Y, Z);
+    stations are cumulative horizontal route distance. Geometry is decimated
+    for the GUI preview only; generation keeps full-resolution source data.
+    """
+
+    def sampled(points: np.ndarray, stride: int = 5) -> list[list[float]]:
+        if not len(points):
+            return []
+        ids = list(range(0, len(points), stride))
+        if ids[-1] != len(points) - 1:
+            ids.append(len(points) - 1)
+        return [[round(float(v), 2) for v in points[i]] for i in ids]
+
+    def interval_row(a: int, b: int, seg: Segment, *, buildable: bool) -> dict:
+        points = seg.points(False)
+        lo, hi = seg._interior_bounds()
+        piece_station = np.r_[seg.start_s, stage.station[lo:hi], seg.end_s]
+        if len(piece_station) != len(points):
+            raise ValueError(
+                f"preview station/geometry length mismatch for {a}-{b}: "
+                f"{len(piece_station)} stations, {len(points)} points"
+            )
+        mid_s = (seg.start_s + seg.end_s) * 0.5
+        mid = np.asarray([np.interp(mid_s, stage.station, stage.points[:, axis]) for axis in range(3)])
+        station_ids = list(range(0, len(piece_station), 5))
+        if station_ids[-1] != len(piece_station) - 1:
+            station_ids.append(len(piece_station) - 1)
+        return {
+            "id": f"{a}-{b}",
+            "a": a,
+            "b": b,
+            "length": round(seg.length, 1),
+            "reversible": cuts[a].kind == "cross" and cuts[b].kind == "cross",
+            "buildable": bool(buildable),
+            "station_start": round(float(seg.start_s), 2),
+            "station_end": round(float(seg.end_s), 2),
+            "station": [round(float(piece_station[i]), 2) for i in station_ids],
+            "midpoint": [round(float(v), 2) for v in mid],
+            "elevation_start": round(float(points[0, 2]), 2),
+            "elevation_end": round(float(points[-1, 2]), 2),
+            "elevation_min": round(float(np.min(points[:, 2])), 2),
+            "elevation_max": round(float(np.max(points[:, 2])), 2),
+            "xyz": sampled(points),
+        }
+
+    route_ids = list(range(0, len(stage.points), 5))
+    if route_ids[-1] != len(stage.points) - 1:
+        route_ids.append(len(stage.points) - 1)
+
+    candidate_ids = {f"{r.a}-{r.b}" for r in ranges}
+    piece_rows = [interval_row(r.a, r.b, r.seg, buildable=True) for r in ranges]
+
+    # Build an independent map representation for each consecutive pair of
+    # tile cuts. Do not use make_ranges() here: its min/max length and geometry
+    # filters are for generation, not for showing the complete original route.
+    section_rows = []
+    for a, (ca, cb) in enumerate(zip(cuts, cuts[1:])):
+        b = a + 1
+        i0 = max(0, int(np.searchsorted(stage.station, ca.s, side="right")) - 1)
+        i1 = min(len(stage.points) - 1, int(np.searchsorted(stage.station, cb.s, side="left")))
+        if cb.s <= ca.s or i1 < i0:
+            raise ValueError(f"non-increasing or unsegmentable source cuts {a}-{b}")
+        seg = Segment(
+            f"{stage.name}#{a}-{b}",
+            stage,
+            i0,
+            i1,
+            2.0,
+            start_s=ca.s,
+            end_s=cb.s,
+            start_point=ca.p,
+            end_point=cb.p,
+            start_width=ca.width,
+            end_width=cb.width,
+        )
+        if len(seg.points(False)) < 2:
+            raise ValueError(f"source section {a}-{b} has fewer than two geometry points")
+        section_rows.append(interval_row(a, b, seg, buildable=f"{a}-{b}" in candidate_ids))
+
     return {
         "level": stage.name,
+        "route_xyz": sampled(stage.points[route_ids], stride=1),
+        "route_s": [round(float(stage.station[i]), 2) for i in route_ids],
         "cuts": [
-            {"i": i, "s": round(c.s, 1), "kind": c.kind, "x": round(float(c.p[0]), 1), "y": round(float(c.p[1]), 1)}
+            {
+                "i": i,
+                "s": round(float(c.s), 2),
+                "kind": c.kind,
+                "x": round(float(c.p[0]), 2),
+                "y": round(float(c.p[1]), 2),
+                "z": round(float(c.p[2]), 2),
+            }
             for i, c in enumerate(cuts)
         ],
-        "pieces": [
-            {
-                "id": f"{r.a}-{r.b}",
-                "a": r.a,
-                "b": r.b,
-                "length": round(r.seg.length, 1),
-                "reversible": cuts[r.a].kind == "cross" and cuts[r.b].kind == "cross",
-                "xy": [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in r.seg.points(False)[::10]],
-            }
-            for r in ranges
-        ],
+        "sections": section_rows,
+        "pieces": piece_rows,
     }
 
 
