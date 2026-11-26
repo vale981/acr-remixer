@@ -76,10 +76,25 @@ lists the installed stages, each with its own *Uninstall* button.
 - **Longer stages:** with *Repeats* above 1, pieces of the original stage may
   appear more than once, so a stage can be longer than the road it was made
   from (e.g. 8–13 km from Hafren South's 5.6 km).
+- **Inspecting and choosing the original road sections:** select a *Stage* and
+  click *List pieces / inspect stock map* below the stage selector. The Map tab
+  shows the untouched stock route with every cut-to-cut section numbered (for
+  example `0-1`, `12-13`). Click any section to inspect its length and elevation.
+  Coloured sections are valid standalone candidates; gray sections remain
+  visible and clickable for inspection but are excluded by the current build
+  filters. The Elevation tab shows the full stock height profile and highlights
+  the selected section. Longer multi-cut candidates can be chosen from the list
+  below the map.
 - **Practising one hard section:** with a *Sequence* you choose the pieces
   yourself, so you can repeat one difficult piece many times in a row, e.g.
   `0-1 7-11 7-11 7-11 18-19` drives piece 7-11 three times, or
   `0-1 7-11 7-11r 7-11 7-11r 18-19` four times in alternating directions.
+  Select any stock section on the map (or a buildable candidate in the list), then
+  click *Add to manual sequence* when that interval is buildable. Inspect-only
+  sections remain visible but cannot be added as standalone pieces. Pieces are
+  appended only when their endpoint matches the current sequence exit; reversible
+  pieces are automatically marked `r` when needed. The backend still validates
+  the full geometry when you build.
   Where the end of a piece doesn't line up with the start of the next, the
   join is bent smoothly (up to 45°) and the pacenotes there are made to match;
   sharper joins stay sharp, and the window warns about them.
@@ -120,9 +135,15 @@ original stage, the build warns. Codes from version 0.1.x
 (`WalesS4HafrenSouth/4500/1/FGL`) only described the search settings; newer
 versions find a different stage with them.
 
-The **Map** tab shows the new route from above (each colour is one piece of an
-original stage), **Elevation** shows the height profile with the joins marked,
-and **Log** shows the details of the last build.
+The **Map** tab shows the generated route from above (each colour is one piece
+of an original stage). Before generating, *List pieces / inspect stock map*
+switches it to the untouched stock route: every interval between tile crossings
+is drawn and labelled. All intervals can be clicked for inspection; buildable
+standalone candidates are coloured and filter-excluded intervals are gray.
+Longer multi-cut candidates are listed below the map. **Elevation** shows the
+generated height profile with joins marked, or the complete stock-stage
+elevation with the selected source section highlighted. **Log** shows the
+details of the last operation.
 
 ## What a stage looks like
 
@@ -170,7 +191,8 @@ python -m stagegen.cli build --level WalesS4HafrenSouth --length 4500 --seed 1 -
 python -m stagegen.cli build ... --no-forest --no-grass --no-foliage   # leave foliage out
 python -m stagegen.cli build ... --cfg seam_width=40                    # any WPConfig option
 python -m stagegen.cli build --level WalesS4HafrenSouth --length 8000 --max-uses 2 --seed 1 --out out
-python -m stagegen.cli segments --level WalesS4HafrenSouth              # pieces for --sequence (--json)
+python -m stagegen.cli segments --level WalesS4HafrenSouth              # manual candidates for --sequence
+python -m stagegen.cli segments --level WalesS4HafrenSouth --json       # full stock map, cut sections and elevations
 python -m stagegen.cli build --level WalesS4HafrenSouth --sequence "0-1 7-11 7-11r 7-11 18-19" --out out
 python -m stagegen.cli installed                                        # installed stages
 python -m stagegen.cli uninstall [--stage SG1L4500HafrenSouth]          # one or all

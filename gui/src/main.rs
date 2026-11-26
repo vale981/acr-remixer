@@ -452,6 +452,431 @@ struct Preview {
     share_code: String,
 }
 
+/// A tile-grid crossing on the untouched source-stage route.
+#[derive(Clone, Deserialize)]
+struct SourceCut {
+    i: usize,
+    s: f64,
+    kind: String,
+    x: f64,
+    y: f64,
+}
+
+/// One valid source interval that can be referenced by a manual sequence.
+#[derive(Clone, Deserialize)]
+struct SourcePiece {
+    id: String,
+    a: usize,
+    b: usize,
+    length: f64,
+    reversible: bool,
+    /// True for an elementary map section when this exact interval is also
+    /// accepted by the backend's manual-sequence candidate list.
+    buildable: bool,
+    station_start: f64,
+    station_end: f64,
+    station: Vec<f64>,
+    midpoint: [f64; 3],
+    elevation_start: f64,
+    elevation_end: f64,
+    elevation_min: f64,
+    elevation_max: f64,
+    xyz: Vec<[f64; 3]>,
+}
+
+/// Read-only preview data returned by `stagegen segments --json`.
+#[derive(Clone, Deserialize)]
+struct SourcePreview {
+    level: String,
+    route_xyz: Vec<[f64; 3]>,
+    route_s: Vec<f64>,
+    cuts: Vec<SourceCut>,
+    /// Every consecutive cut-to-cut section, whether or not it is buildable.
+    sections: Vec<SourcePiece>,
+    /// All candidate intervals accepted by make_ranges(), including multi-cut spans.
+    pieces: Vec<SourcePiece>,
+}
+
+/// `load_wp_source()` may print progress/diagnostic lines before the JSON.
+/// The backend now emits a clean document for --json; selecting the last
+/// top-level JSON line also keeps the GUI tolerant of older development builds.
+fn parse_source_preview(stdout: &str) -> Result<SourcePreview, String> {
+    let document = stdout
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| line.starts_with('{'))
+        .ok_or_else(|| "backend did not emit a JSON stock-stage description".to_string())?;
+    serde_json::from_str::<SourcePreview>(document).map_err(|e| e.to_string())
+}
+
+fn parse_piece_token(token: &str) -> Option<(usize, usize, bool)> {
+    let reversed = token.ends_with('r');
+    let core = if reversed {
+        &token[..token.len().saturating_sub(1)]
+    } else {
+        token
+    };
+    let (a, b) = core.split_once('-')?;
+    let a = a.parse::<usize>().ok()?;
+    let b = b.parse::<usize>().ok()?;
+    if a >= b {
+        return None;
+    }
+    Some((a, b, reversed))
+}
+
+/// Append a source piece only when its entry cut matches the current sequence exit.
+/// This checks topological continuity; the backend still performs full geometric
+/// kink, grade, width and clearance validation when the sequence is built.
+fn append_piece_to_sequence(
+    sequence: &str,
+    piece: &SourcePiece,
+    final_cut: usize,
+) -> Result<String, String> {
+    let current = norm_sequence(sequence);
+    if current.is_empty() {
+        if piece.a != 0 {
+            return Err(format!(
+                "Start the manual sequence with a piece beginning at cut 0, not {}.",
+                piece.id
+            ));
+        }
+        return Ok(piece.id.clone());
+    }
+
+    let last_token = current
+        .split_whitespace()
+        .last()
+        .ok_or("The sequence is empty.")?;
+    let (a, b, reversed) = parse_piece_token(last_token)
+        .ok_or_else(|| format!("Cannot understand the last sequence piece: {last_token}"))?;
+    let exit = if reversed { a } else { b };
+    if exit == final_cut {
+        return Err("The sequence already reaches the finish cut; remove its last piece before adding another.".into());
+    }
+
+    let token = if piece.a == exit {
+        piece.id.clone()
+    } else if piece.b == exit && piece.reversible {
+        format!("{}r", piece.id)
+    } else {
+        return Err(format!(
+            "Piece {} does not connect to the current sequence exit (cut {}). Choose a piece starting or ending at cut {}.",
+            piece.id, exit, exit));
+    };
+
+    // Validate that the existing text contains a continuous chain before appending.
+    let mut expected_entry = 0usize;
+    for item in current.split_whitespace() {
+        let (ia, ib, rev) = parse_piece_token(item)
+            .ok_or_else(|| format!("Cannot understand sequence piece: {item}"))?;
+        let (entry, next) = if rev { (ib, ia) } else { (ia, ib) };
+        if entry != expected_entry {
+            return Err(format!(
+                "Existing sequence is discontinuous before {item} (expected cut {expected_entry})."
+            ));
+        }
+        expected_entry = next;
+    }
+    if expected_entry != exit {
+        return Err("The last sequence piece does not end at the expected cut.".into());
+    }
+    Ok(format!("{current} {token}"))
+}
+
+fn point_segment_distance(point: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let denom = ab.length_sq();
+    if denom <= f32::EPSILON {
+        return point.distance(a);
+    }
+    let t = ((point - a).dot(ab) / denom).clamp(0.0, 1.0);
+    point.distance(a + t * ab)
+}
+
+/// Pick the closest physical cut-to-cut section under the pointer.
+/// All map sections are inspectable, including those excluded from generation;
+/// only entries also present in `source.pieces` can be added to a sequence.
+fn source_piece_at_pointer(pu: &egui_plot::PlotUi<'_>, source: &SourcePreview) -> Option<String> {
+    let pointer = pu.ctx().input(|i| i.pointer.interact_pos())?;
+    let mut best: Option<(f32, f32, String)> = None;
+    for piece in &source.sections {
+        if piece.xyz.len() < 2 {
+            continue;
+        }
+        let screen: Vec<egui::Pos2> = piece
+            .xyz
+            .iter()
+            .map(|p| pu.screen_from_plot(egui_plot::PlotPoint::new(p[0], p[1])))
+            .collect();
+        let distance = screen
+            .windows(2)
+            .map(|w| point_segment_distance(pointer, w[0], w[1]))
+            .fold(f32::INFINITY, f32::min);
+        if distance > 18.0 {
+            continue;
+        }
+        let midpoint = pu.screen_from_plot(egui_plot::PlotPoint::new(
+            piece.midpoint[0],
+            piece.midpoint[1],
+        ));
+        let midpoint_distance = midpoint.distance(pointer);
+        let replace = match &best {
+            None => true,
+            Some((old_distance, old_midpoint, _)) => {
+                distance < *old_distance - 0.5
+                    || ((distance - *old_distance).abs() <= 0.5
+                        && midpoint_distance < *old_midpoint)
+            }
+        };
+        if replace {
+            best = Some((distance, midpoint_distance, piece.id.clone()));
+        }
+    }
+    best.map(|(_, _, id)| id)
+}
+
+fn source_map_ui(
+    ui: &mut egui::Ui,
+    source: &SourcePreview,
+    selected: Option<&str>,
+) -> Option<String> {
+    ui.label(format!(
+        "Stock stage: {}  •  {} tile sections  •  {} buildable candidates",
+        source.level,
+        source.sections.len(),
+        source.pieces.len()
+    ));
+    ui.small("Click any labelled section to inspect it. Coloured sections are valid standalone candidates; gray sections are shown for reference but are excluded by build filters. Longer candidates are listed below.");
+
+    let palette = [
+        egui::Color32::from_rgb(68, 136, 205),
+        egui::Color32::from_rgb(66, 166, 130),
+        egui::Color32::from_rgb(205, 151, 72),
+        egui::Color32::from_rgb(155, 117, 205),
+        egui::Color32::from_rgb(205, 103, 119),
+        egui::Color32::from_rgb(68, 165, 181),
+        egui::Color32::from_rgb(178, 180, 82),
+        egui::Color32::from_rgb(194, 119, 73),
+    ];
+    let mut clicked_piece = None;
+    Plot::new("stock-map")
+        .data_aspect(1.0)
+        .legend(Legend::default())
+        .height(440.0)
+        .show(ui, |pu| {
+            let route: Vec<[f64; 2]> = source.route_xyz.iter().map(|p| [p[0], p[1]]).collect();
+            if route.len() >= 2 {
+                pu.line(
+                    Line::new(PlotPoints::from(route))
+                        .width(1.5_f32)
+                        .color(egui::Color32::from_gray(120))
+                        .name("stock centreline"),
+                );
+            }
+
+            // Draw every physical cut-to-cut interval, including those excluded
+            // from generation by the minimum-length or source-geometry filters.
+            for (k, section) in source.sections.iter().enumerate() {
+                let pts: Vec<[f64; 2]> = section.xyz.iter().map(|p| [p[0], p[1]]).collect();
+                if pts.len() >= 2 {
+                    let color = if section.buildable {
+                        palette[k % palette.len()]
+                    } else {
+                        egui::Color32::from_gray(95)
+                    };
+                    let label = if section.buildable {
+                        "selectable road section"
+                    } else {
+                        "not a build candidate"
+                    };
+                    pu.line(
+                        Line::new(PlotPoints::from(pts))
+                            .width(3.0_f32)
+                            .color(color)
+                            .name(label),
+                    );
+                    pu.text(
+                        egui_plot::Text::new(
+                            egui_plot::PlotPoint::new(section.midpoint[0], section.midpoint[1]),
+                            section.id.clone(),
+                        )
+                        .color(if section.buildable {
+                            color
+                        } else {
+                            egui::Color32::from_gray(175)
+                        }),
+                    );
+                }
+            }
+
+            if let Some(id) = selected {
+                if let Some(piece) = source
+                    .pieces
+                    .iter()
+                    .find(|p| p.id == id)
+                    .or_else(|| source.sections.iter().find(|p| p.id == id))
+                {
+                    let pts: Vec<[f64; 2]> = piece.xyz.iter().map(|p| [p[0], p[1]]).collect();
+                    if pts.len() >= 2 {
+                        pu.line(
+                            Line::new(PlotPoints::from(pts))
+                                .width(5.0_f32)
+                                .color(egui::Color32::from_rgb(245, 190, 55))
+                                .name(format!("selected {id}")),
+                        );
+                        pu.points(
+                            egui_plot::Points::new(vec![[piece.midpoint[0], piece.midpoint[1]]])
+                                .radius(5.0_f32)
+                                .color(egui::Color32::from_rgb(245, 190, 55))
+                                .name("selected midpoint"),
+                        );
+                    }
+                }
+            }
+
+            let cut_points: Vec<[f64; 2]> = source.cuts.iter().map(|c| [c.x, c.y]).collect();
+            if !cut_points.is_empty() {
+                pu.points(
+                    egui_plot::Points::new(cut_points)
+                        .radius(3.5_f32)
+                        .color(egui::Color32::WHITE)
+                        .name("tile crossings"),
+                );
+            }
+            for cut in &source.cuts {
+                let label = match cut.kind.as_str() {
+                    "start" => format!("{} START", cut.i),
+                    "finish" => format!("{} FINISH", cut.i),
+                    _ => cut.i.to_string(),
+                };
+                pu.text(
+                    egui_plot::Text::new(egui_plot::PlotPoint::new(cut.x, cut.y), label).color(
+                        if cut.kind == "start" || cut.kind == "finish" {
+                            egui::Color32::from_rgb(245, 190, 55)
+                        } else {
+                            egui::Color32::WHITE
+                        },
+                    ),
+                );
+            }
+            if pu.response().clicked() {
+                clicked_piece = source_piece_at_pointer(pu, source);
+            }
+        });
+    clicked_piece
+}
+
+fn source_sections_ui(
+    ui: &mut egui::Ui,
+    source: &SourcePreview,
+    selected: Option<&str>,
+    filter: &mut String,
+) -> Option<String> {
+    let mut picked = None;
+    ui.horizontal(|ui| {
+        ui.strong(format!("Available manual pieces ({})", source.pieces.len()));
+        ui.add(
+            egui::TextEdit::singleline(filter)
+                .desired_width(150.0)
+                .hint_text("Filter e.g. 12-13"),
+        );
+    });
+    if source.pieces.is_empty() {
+        ui.small("No candidate pieces passed the current build filters. The stock route and all tile sections are still shown above.");
+    }
+    egui::ScrollArea::vertical()
+        .max_height(190.0)
+        .show(ui, |ui| {
+            for piece in &source.pieces {
+                if !filter.trim().is_empty() && !piece.id.contains(filter.trim()) {
+                    continue;
+                }
+                let direction = if piece.reversible {
+                    "reversible"
+                } else {
+                    "forward only"
+                };
+                let label = format!(
+                    "{:>5}   {:>5.0} m   Z {:.0}–{:.0} m   {}",
+                    piece.id, piece.length, piece.elevation_min, piece.elevation_max, direction
+                );
+                if ui
+                    .selectable_label(selected == Some(piece.id.as_str()), label)
+                    .clicked()
+                {
+                    picked = Some(piece.id.clone());
+                }
+            }
+        });
+    picked
+}
+
+fn source_elevation_ui(ui: &mut egui::Ui, source: &SourcePreview, selected: Option<&str>) {
+    ui.label(format!("Stock-stage elevation: {}", source.level));
+    if let (Some(first), Some(last)) = (source.route_xyz.first(), source.route_xyz.last()) {
+        let (z_min, z_max) = source
+            .route_xyz
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), point| {
+                (lo.min(point[2]), hi.max(point[2]))
+            });
+        ui.small(format!(
+            "Route length: {:.0} m  •  start/end: {:.1}/{:.1} m  •  elevation range: {:.1}–{:.1} m",
+            source.route_s.last().copied().unwrap_or(0.0),
+            first[2],
+            last[2],
+            z_min,
+            z_max
+        ));
+    }
+    Plot::new("stock-elevation").height(420.0).show(ui, |pu| {
+        let route: Vec<[f64; 2]> = source
+            .route_xyz
+            .iter()
+            .zip(&source.route_s)
+            .map(|(p, s)| [*s, p[2]])
+            .collect();
+        if route.len() >= 2 {
+            pu.line(
+                Line::new(PlotPoints::from(route))
+                    .width(1.8_f32)
+                    .color(egui::Color32::from_gray(130))
+                    .name("stock elevation"),
+            );
+        }
+        if let Some(id) = selected {
+            if let Some(piece) = source
+                .pieces
+                .iter()
+                .find(|p| p.id == id)
+                .or_else(|| source.sections.iter().find(|p| p.id == id))
+            {
+                let section: Vec<[f64; 2]> = piece
+                    .xyz
+                    .iter()
+                    .zip(&piece.station)
+                    .map(|(p, s)| [*s, p[2]])
+                    .collect();
+                if section.len() >= 2 {
+                    pu.line(
+                        Line::new(PlotPoints::from(section))
+                            .width(3.5_f32)
+                            .color(egui::Color32::from_rgb(245, 190, 55))
+                            .name(format!("selected {id}")),
+                    );
+                }
+                pu.vline(VLine::new(piece.station_start).name("section start"));
+                pu.vline(VLine::new(piece.station_end).name("section end"));
+            }
+        }
+        for cut in &source.cuts {
+            pu.vline(VLine::new(cut.s).name(format!("cut {}", cut.i)));
+        }
+    });
+}
+
 fn load_preview(dir: &Path) -> Result<Preview, String> {
     let name = dir
         .file_name()
@@ -519,8 +944,22 @@ fn load_preview_file(file: &Path, name: String) -> Result<Preview, String> {
 }
 
 enum Msg {
-    Line(String),
-    Done { ok: bool, out: Option<PathBuf> },
+    Line {
+        line: String,
+        stdout: bool,
+    },
+    Done {
+        ok: bool,
+        out: Option<PathBuf>,
+        stdout: String,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum JobKind {
+    Build,
+    ListPieces,
+    Uninstall,
 }
 
 struct Job {
@@ -529,6 +968,7 @@ struct Job {
     total: usize,
     progress: f32,
     phase: String,
+    kind: JobKind,
 }
 
 struct App {
@@ -536,6 +976,12 @@ struct App {
     log: String,
     job: Option<Job>,
     preview: Option<Preview>,
+    /// Original stock-stage route and tile-cut pieces, loaded by "List pieces".
+    source_preview: Option<SourcePreview>,
+    selected_source_piece: Option<String>,
+    show_stock: bool,
+    section_filter: String,
+    sequence_note: Option<String>,
     tab: Tab,
     /// generated stage in ~mods, firewall block present (refreshed on events)
     installed: Vec<Installed>,
@@ -577,6 +1023,11 @@ impl App {
             log: String::new(),
             job: None,
             preview: None,
+            source_preview: None,
+            selected_source_piece: None,
+            show_stock: false,
+            section_filter: String::new(),
+            sequence_note: None,
             tab: Tab::Map,
             installed: vec![],
             blocked: false,
@@ -617,6 +1068,7 @@ impl App {
             total,
             progress: 0.0,
             phase: "starting".into(),
+            kind: JobKind::Build,
         });
         self.next();
     }
@@ -644,6 +1096,7 @@ impl App {
             total: 1,
             progress: 0.0,
             phase: "starting".into(),
+            kind: JobKind::Build,
         });
         self.next();
     }
@@ -657,6 +1110,7 @@ impl App {
         ) {
             Ok(pv) => {
                 self.preview = Some(pv);
+                self.show_stock = false;
                 self.shown_installed = Some(inst.name.clone());
                 if self.tab == Tab::Log {
                     self.tab = Tab::Map;
@@ -822,12 +1276,17 @@ impl App {
         Ok(path)
     }
 
-    /// Show the selected stage's pieces (for a sequence) in the log.
+    /// Load the untouched source stage's route, tile cuts and candidate pieces.
     fn list_segments(&mut self) {
         let p = self.prefs.clone();
         self.log
-            .push_str(&format!("\n=== pieces of {} ===\n", p.stage));
-        self.tab = Tab::Log;
+            .push_str(&format!("\n=== stock-stage sections of {} ===\n", p.stage));
+        self.tab = Tab::Map;
+        self.show_stock = true;
+        self.source_preview = None;
+        self.selected_source_piece = None;
+        self.section_filter.clear();
+        self.sequence_note = None;
         let paks = PathBuf::from(&p.acr_dir)
             .join(r"acr\Content\Paks")
             .display()
@@ -840,18 +1299,45 @@ impl App {
                     p.stage.clone(),
                     "--paks".into(),
                     paks,
+                    "--json".into(),
                 ]);
                 let (tx, rx) = channel();
                 self.job = Some(Job {
                     rx,
                     remaining: vec![],
                     total: 1,
-                    progress: 0.5,
-                    phase: "reading pieces".into(),
+                    progress: 0.05,
+                    phase: "extracting stock-stage sections".into(),
+                    kind: JobKind::ListPieces,
                 });
                 spawn_build(prog, cwd, full, None, tx);
             }
             Err(e) => self.log.push_str(&format!("backend: {e}\n")),
+        }
+    }
+
+    /// Append the selected stock piece while preserving endpoint continuity.
+    fn add_selected_piece(&mut self) {
+        let Some(source) = self.source_preview.as_ref() else {
+            return;
+        };
+        let Some(id) = self.selected_source_piece.as_deref() else {
+            return;
+        };
+        let Some(piece) = source.pieces.iter().find(|p| p.id == id) else {
+            return;
+        };
+        match append_piece_to_sequence(
+            &self.prefs.sequence,
+            piece,
+            source.cuts.len().saturating_sub(1),
+        ) {
+            Ok(next) => {
+                self.prefs.sequence = next;
+                self.prefs.use_sequence = true;
+                self.sequence_note = Some(format!("Added {}. Sequence endpoints remain connected; build validation will check join geometry.", piece.id));
+            }
+            Err(e) => self.sequence_note = Some(e),
         }
     }
 
@@ -880,6 +1366,7 @@ impl App {
                     total: 1,
                     progress: 0.5,
                     phase: "uninstalling".into(),
+                    kind: JobKind::Uninstall,
                 });
                 spawn_build(prog, cwd, full, None, tx);
             }
@@ -888,42 +1375,96 @@ impl App {
     }
 
     fn poll(&mut self) {
-        let mut finished = None;
+        let mut finished: Option<(bool, Option<PathBuf>, String, JobKind)> = None;
         if let Some(job) = &mut self.job {
             while let Ok(m) = job.rx.try_recv() {
                 match m {
-                    Msg::Line(l) => {
-                        if let Some(rest) = l.strip_prefix("@progress ") {
+                    Msg::Line { line, stdout } => {
+                        if let Some(rest) = line.strip_prefix("@progress ") {
                             let (f, phase) = rest.split_once(' ').unwrap_or((rest, ""));
                             job.progress = f.trim().parse().unwrap_or(job.progress);
                             job.phase = phase.to_string();
                             continue;
                         }
-                        self.log.push_str(&l);
-                        self.log.push('\n');
+                        // `segments --json` can be a large single line. Keep it in
+                        // the result payload rather than flooding the visible log.
+                        if !(stdout && job.kind == JobKind::ListPieces) {
+                            self.log.push_str(&line);
+                            self.log.push('\n');
+                        }
                     }
-                    Msg::Done { ok, out } => finished = Some((ok, out)),
+                    Msg::Done { ok, out, stdout } => {
+                        finished = Some((ok, out, stdout, job.kind));
+                    }
                 }
             }
         }
-        if let Some((ok, out)) = finished {
-            if ok {
-                if let Some(out) = out {
-                    match load_preview(&out) {
-                        Ok(pv) => {
-                            self.preview = Some(pv);
-                            self.tab = Tab::Map;
+        if let Some((ok, out, stdout, kind)) = finished {
+            match kind {
+                JobKind::Build => {
+                    if ok {
+                        if let Some(out) = out {
+                            match load_preview(&out) {
+                                Ok(pv) => {
+                                    self.preview = Some(pv);
+                                    self.show_stock = false;
+                                    self.tab = Tab::Map;
+                                }
+                                Err(e) => self.log.push_str(&format!("preview: {e}\n")),
+                            }
                         }
-                        Err(e) => self.log.push_str(&format!("preview: {e}\n")),
+                        self.next();
+                    } else {
+                        self.log.push_str("build failed (see above)\n");
+                        self.job = None;
+                    }
+                    if self.job.is_none() {
+                        self.sync_firewall();
                     }
                 }
-                self.next();
-            } else {
-                self.log.push_str("build failed (see above)\n");
-                self.job = None;
-            }
-            if self.job.is_none() {
-                self.sync_firewall();
+                JobKind::ListPieces => {
+                    self.job = None;
+                    if ok {
+                        match parse_source_preview(&stdout) {
+                            Ok(source) if source.level == self.prefs.stage
+                                && !source.route_xyz.is_empty()
+                                && source.route_xyz.len() == source.route_s.len()
+                                && source.cuts.len() >= 2
+                                && source.sections.len() == source.cuts.len() - 1 =>
+                            {
+                                let first = source.pieces.iter().find(|p| p.a == 0)
+                                    .or_else(|| source.pieces.first()).map(|p| p.id.clone());
+                                self.selected_source_piece = first;
+                                self.source_preview = Some(source);
+                                self.show_stock = true;
+                                self.tab = Tab::Map;
+                                if let Some(src) = &self.source_preview {
+                                    self.log.push_str(&format!(
+                                        "loaded stock map: {} cut-to-cut sections, {} buildable manual pieces; click a coloured section or choose a longer candidate from the list\n",
+                                        src.sections.len(), src.pieces.len()));
+                                }
+                            }
+                            Ok(source) => {
+                                self.log.push_str(&format!(
+                                    "stock map data was incomplete for {} (route points: {}, cuts: {}, map sections: {}, candidates: {})\n",
+                                    source.level, source.route_xyz.len(), source.cuts.len(), source.sections.len(), source.pieces.len()));
+                            }
+                            Err(e) => self.log.push_str(&format!(
+                                "could not read stock-stage map data: {e}. Rebuild the GUI with the updated StageGen backend.\n")),
+                        }
+                    } else {
+                        self.log.push_str(
+                            "could not extract stock-stage sections (see errors above)\n",
+                        );
+                    }
+                }
+                JobKind::Uninstall => {
+                    self.job = None;
+                    if !ok {
+                        self.log.push_str("uninstall failed (see above)\n");
+                    }
+                    self.sync_firewall();
+                }
             }
         }
     }
@@ -1000,8 +1541,15 @@ fn spawn_build(
         let mut child = match child {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send(Msg::Line(format!("cannot start {python}: {e}")));
-                let _ = tx.send(Msg::Done { ok: false, out });
+                let _ = tx.send(Msg::Line {
+                    line: format!("cannot start {python}: {e}"),
+                    stdout: false,
+                });
+                let _ = tx.send(Msg::Done {
+                    ok: false,
+                    out,
+                    stdout: String::new(),
+                });
                 return;
             }
         };
@@ -1009,15 +1557,25 @@ fn spawn_build(
         let tx2 = tx.clone();
         let t = std::thread::spawn(move || {
             forward_pipe_lines(err, |line| {
-                let _ = tx2.send(Msg::Line(line));
+                let _ = tx2.send(Msg::Line {
+                    line,
+                    stdout: false,
+                });
             });
         });
+        let mut captured_stdout = String::new();
         forward_pipe_lines(child.stdout.take().unwrap(), |line| {
-            let _ = tx.send(Msg::Line(line));
+            captured_stdout.push_str(&line);
+            captured_stdout.push('\n');
+            let _ = tx.send(Msg::Line { line, stdout: true });
         });
         let _ = t.join();
         let ok = child.wait().map(|s| s.success()).unwrap_or(false);
-        let _ = tx.send(Msg::Done { ok, out });
+        let _ = tx.send(Msg::Done {
+            ok,
+            out,
+            stdout: captured_stdout,
+        });
     });
 }
 
@@ -1079,12 +1637,19 @@ impl eframe::App for App {
 
         let mut block_changed = false;
         let mut want_segments = false;
+        let mut want_add_piece = false;
         let mut inst_action: Option<InstAction> = None;
         let pv_seq = self
             .preview
             .as_ref()
             .map(|pv| pv.sequence.clone())
             .filter(|s| !s.is_empty());
+        let selected_piece_for_sidebar = self.source_preview.as_ref().and_then(|src| {
+            self.selected_source_piece
+                .as_deref()
+                .and_then(|id| src.pieces.iter().find(|piece| piece.id == id))
+                .cloned()
+        });
         egui::SidePanel::left("opts").min_width(330.0).show(ctx, |ui| {
           egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.heading("ACR Remixer");
@@ -1130,6 +1695,12 @@ impl eframe::App for App {
                         ui.selectable_value(&mut p.stage, id.to_string(), format!("{name}{tag}"));
                     }
                 });
+                if ui.button("List pieces / inspect stock map")
+                    .on_hover_text("Load every source road section, its section IDs and the full elevation profile")
+                    .clicked()
+                {
+                    want_segments = true;
+                }
                 ui.horizontal(|ui| {
                     ui.label("Length");
                     // open-ended: the source road (times Repeats) is the real limit
@@ -1185,18 +1756,25 @@ impl eframe::App for App {
                             .hint_text("0-1 7-11 7-11r 7-11 18-19"));
                         ui.horizontal(|ui| {
                             if ui.add_enabled(pv_seq.is_some(), egui::Button::new("From the shown stage"))
-                                .on_hover_text("Copy the pieces of the stage shown on the map, to tweak them")
+                                .on_hover_text("Copy the pieces of the generated stage shown on the map, to tweak them")
                                 .clicked()
                             {
                                 p.sequence = pv_seq.clone().unwrap_or_default();
                                 p.use_sequence = true;
                             }
-                            if ui.button("List pieces").on_hover_text("Show the pieces of this stage in the Log tab")
-                                .clicked()
-                            {
-                                want_segments = true;
-                            }
                         });
+                        if let Some(piece) = &selected_piece_for_sidebar {
+                            ui.horizontal(|ui| {
+                                ui.small(format!("Selected: {}  •  {:.0} m  •  {:.0}–{:.0} m elevation",
+                                    piece.id, piece.length, piece.elevation_min, piece.elevation_max));
+                                if ui.small_button("Add selected section").clicked() {
+                                    want_add_piece = true;
+                                }
+                            });
+                        }
+                        if let Some(note) = &self.sequence_note {
+                            ui.small(note);
+                        }
                     });
                 ui.label("Foliage (untick to leave out for performance):");
                 ui.horizontal(|ui| {
@@ -1229,7 +1807,10 @@ impl eframe::App for App {
                 }
                 if !busy && ui.button("Open last").clicked() {
                     match load_preview(&self.out_for(self.prefs.seed)) {
-                        Ok(pv) => self.preview = Some(pv),
+                        Ok(pv) => {
+                            self.preview = Some(pv);
+                            self.show_stock = false;
+                        }
                         Err(e) => self.log.push_str(&format!("preview: {e}\n")),
                     }
                 }
@@ -1418,6 +1999,15 @@ impl eframe::App for App {
                 ui.selectable_value(&mut self.tab, Tab::Map, "Map");
                 ui.selectable_value(&mut self.tab, Tab::Elevation, "Elevation");
                 ui.selectable_value(&mut self.tab, Tab::Log, "Log");
+                let has_current_stock = self.source_preview.as_ref()
+                    .is_some_and(|source| source.level == self.prefs.stage);
+                if has_current_stock {
+                    ui.separator();
+                    ui.selectable_value(&mut self.show_stock, true, "Stock stage");
+                    if self.preview.is_some() {
+                        ui.selectable_value(&mut self.show_stock, false, "Generated stage");
+                    }
+                }
             });
             ui.separator();
             match self.tab {
@@ -1431,12 +2021,57 @@ impl eframe::App for App {
                             );
                         });
                 }
-                Tab::Map | Tab::Elevation if self.preview.is_none() => {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("Generate a stage (or open the last one) to see it here.")
-                    });
+                Tab::Map if self.show_stock && self.source_preview.as_ref()
+                    .is_some_and(|source| source.level == self.prefs.stage) => {
+                    let source = self.source_preview.as_ref().unwrap();
+                    let mut selected = self.selected_source_piece.clone();
+                    if let Some(id) = source_map_ui(ui, source, selected.as_deref()) {
+                        selected = Some(id);
+                    }
+                    if let Some(piece) = selected.as_deref().and_then(|id| {
+                        source.pieces.iter().find(|p| p.id == id)
+                            .or_else(|| source.sections.iter().find(|p| p.id == id))
+                    }) {
+                        let can_add = source.pieces.iter().any(|p| p.id == piece.id);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.strong(format!("Selected section {}", piece.id));
+                            ui.label(format!("{:.0} m", piece.length));
+                            ui.label(format!("start {:.1} m → end {:.1} m", piece.elevation_start, piece.elevation_end));
+                            ui.label(format!("range {:.1}–{:.1} m", piece.elevation_min, piece.elevation_max));
+                            ui.label(if piece.reversible { "reversible" } else { "forward only" });
+                            if !can_add {
+                                ui.colored_label(egui::Color32::from_gray(150), "inspect only: not a standalone build candidate");
+                            }
+                            if ui.add_enabled(can_add, egui::Button::new("Add to manual sequence")).clicked() {
+                                want_add_piece = true;
+                            }
+                        });
+                    }
+                    if let Some(id) = source_sections_ui(ui, source, selected.as_deref(), &mut self.section_filter) {
+                        selected = Some(id);
+                    }
+                    self.selected_source_piece = selected;
                 }
-                Tab::Map => {
+                Tab::Elevation if self.show_stock && self.source_preview.as_ref()
+                    .is_some_and(|source| source.level == self.prefs.stage) => {
+                    let source = self.source_preview.as_ref().unwrap();
+                    let mut selected = self.selected_source_piece.clone();
+                    source_elevation_ui(ui, source, selected.as_deref());
+                    if let Some(piece) = selected.as_deref().and_then(|id| {
+                        source.pieces.iter().find(|p| p.id == id)
+                            .or_else(|| source.sections.iter().find(|p| p.id == id))
+                    }) {
+                        let status = if piece.buildable { "buildable" } else { "inspect only" };
+                        ui.label(format!("Section {} ({status}): {:.0} m; {:.1} → {:.1} m; min/max {:.1}/{:.1} m",
+                            piece.id, piece.length, piece.elevation_start, piece.elevation_end,
+                            piece.elevation_min, piece.elevation_max));
+                    }
+                    if let Some(id) = source_sections_ui(ui, source, selected.as_deref(), &mut self.section_filter) {
+                        selected = Some(id);
+                    }
+                    self.selected_source_piece = selected;
+                }
+                Tab::Map if self.preview.is_some() => {
                     let pv = self.preview.as_ref().unwrap();
                     Plot::new("map")
                         .data_aspect(1.0)
@@ -1474,7 +2109,7 @@ impl eframe::App for App {
                             }
                         });
                 }
-                Tab::Elevation => {
+                Tab::Elevation if self.preview.is_some() => {
                     let pv = self.preview.as_ref().unwrap();
                     Plot::new("elev").show(ui, |pu| {
                         let pts: Vec<[f64; 2]> =
@@ -1489,8 +2124,26 @@ impl eframe::App for App {
                         }
                     });
                 }
+                Tab::Map | Tab::Elevation if self.show_stock => {
+                    ui.centered_and_justified(|ui| {
+                        if let Some(source) = &self.source_preview {
+                            ui.label(format!("The loaded stock map is {}. Select that stage or click List pieces again to load {}.",
+                                source.level, self.prefs.stage));
+                        } else if self.job.is_some() {
+                            ui.label("Extracting the stock road network, tile sections and elevations…");
+                        } else {
+                            ui.label("Select a stock stage and click List pieces to inspect its complete road map, sections and elevations.");
+                        }
+                    });
+                }
+                _ => {
+                    ui.centered_and_justified(|ui| ui.label("Generate a stage or select List pieces to inspect the original stock route."));
+                }
             }
         });
+        if want_add_piece && !busy {
+            self.add_selected_piece();
+        }
     }
 }
 
@@ -1511,7 +2164,10 @@ fn main() -> eframe::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_dir, code_level, forward_pipe_lines, norm_code, Prefs};
+    use super::{
+        append_piece_to_sequence, build_dir, code_level, forward_pipe_lines, norm_code,
+        parse_source_preview, Prefs, SourcePiece,
+    };
 
     const CODE: &str = "R2:WalesS4HafrenSouth:0-1352,2451-3255,3255-4300,4656-5592:FG-:5751:EU";
 
@@ -1561,5 +2217,66 @@ mod tests {
         assert_eq!(got.len(), 3);
         assert!(got[1].starts_with("path caf"));
         assert_eq!(got[2], "@progress 1.0 done");
+    }
+
+    fn piece(a: usize, b: usize, reversible: bool) -> SourcePiece {
+        SourcePiece {
+            id: format!("{a}-{b}"),
+            a,
+            b,
+            length: 100.0,
+            reversible,
+            buildable: true,
+            station_start: 0.0,
+            station_end: 100.0,
+            station: vec![],
+            midpoint: [0.0; 3],
+            elevation_start: 0.0,
+            elevation_end: 0.0,
+            elevation_min: 0.0,
+            elevation_max: 0.0,
+            xyz: vec![],
+        }
+    }
+
+    #[test]
+    fn adding_pieces_keeps_the_sequence_connected() {
+        // starts at cut 0
+        assert_eq!(
+            append_piece_to_sequence("", &piece(0, 3, false), 9).unwrap(),
+            "0-3"
+        );
+        assert!(append_piece_to_sequence("", &piece(3, 5, true), 9).is_err());
+        // forwards from the exit, or backwards when the piece ends there
+        assert_eq!(
+            append_piece_to_sequence("0-3", &piece(3, 5, true), 9).unwrap(),
+            "0-3 3-5"
+        );
+        assert_eq!(
+            append_piece_to_sequence("0-3 3-5", &piece(3, 5, true), 9).unwrap(),
+            "0-3 3-5 3-5r"
+        );
+        assert_eq!(
+            append_piece_to_sequence("0-3 3-5 3-5r", &piece(3, 9, false), 9).unwrap(),
+            "0-3 3-5 3-5r 3-9"
+        );
+        // a forward-only piece can't be driven backwards, a far piece doesn't connect
+        assert!(append_piece_to_sequence("0-3 3-5", &piece(3, 5, false), 9).is_err());
+        assert!(append_piece_to_sequence("0-3", &piece(4, 5, true), 9).is_err());
+        // nothing after the finish, nothing after a broken chain
+        assert!(append_piece_to_sequence("0-3 3-9", &piece(3, 5, true), 9).is_err());
+        assert!(append_piece_to_sequence("0-3 4-5", &piece(5, 6, true), 9).is_err());
+    }
+
+    #[test]
+    fn stock_preview_is_the_last_json_line() {
+        let out =
+            "some diagnostics\n{\"level\":\"L\",\"route_xyz\":[[0,0,1],[1,0,2]],\"route_s\":[0,1],\
+                   \"cuts\":[{\"i\":0,\"s\":0,\"kind\":\"start\",\"x\":0,\"y\":0,\"z\":1}],\
+                   \"sections\":[],\"pieces\":[]}\n";
+        let src = parse_source_preview(out).unwrap();
+        assert_eq!(src.level, "L");
+        assert_eq!(src.route_xyz.len(), 2);
+        assert!(parse_source_preview("no json here").is_err());
     }
 }
