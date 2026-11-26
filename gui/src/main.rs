@@ -15,7 +15,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use eframe::egui;
-use egui_plot::{Legend, Line, Plot, PlotPoints, VLine};
+use egui_plot::{Legend, Line, Plot, PlotPoints};
 use serde::{Deserialize, Serialize};
 
 const STAGES: &[(&str, &str)] = &[
@@ -456,7 +456,6 @@ struct Preview {
 #[derive(Clone, Deserialize)]
 struct SourceCut {
     i: usize,
-    s: f64,
     kind: String,
     x: f64,
     y: f64,
@@ -637,20 +636,58 @@ fn source_piece_at_pointer(pu: &egui_plot::PlotUi<'_>, source: &SourcePreview) -
     best.map(|(_, _, id)| id)
 }
 
-fn source_map_ui(
-    ui: &mut egui::Ui,
-    source: &SourcePreview,
-    selected: Option<&str>,
-) -> Option<String> {
-    ui.label(format!(
-        "Stock stage: {}  •  {} tile sections  •  {} buildable candidates",
-        source.level,
-        source.sections.len(),
-        source.pieces.len()
-    ));
-    ui.small("Click any labelled section to inspect it. Coloured sections are valid standalone candidates; gray sections are shown for reference but are excluded by build filters. Longer candidates are listed below.");
+/// The generated route split at the joins: (point, station) per piece, each
+/// overlapping its neighbours by 10 m so the coloured lines meet.
+fn piece_spans(pv: &Preview) -> Vec<Vec<([f64; 3], f64)>> {
+    let mut bounds = vec![0.0];
+    bounds.extend(pv.joins.iter().copied());
+    bounds.push(f64::INFINITY);
+    bounds
+        .windows(2)
+        .map(|w| {
+            pv.pts
+                .iter()
+                .zip(&pv.s)
+                .filter(|(_, s)| **s >= w[0] - 10.0 && **s <= w[1] + 10.0)
+                .map(|(p, s)| (*p, *s))
+                .collect()
+        })
+        .collect()
+}
 
-    let palette = [
+/// Legend name of the k-th piece of a generated stage: its place and source
+/// piece ("2. 7-11r"), numbered because a piece can appear more than once.
+fn piece_label(pv: &Preview, k: usize) -> String {
+    match pv.sequence.split_whitespace().nth(k) {
+        Some(id) => format!("{}. {id}", k + 1),
+        None => format!("piece {}", k + 1),
+    }
+}
+
+/// Height profile of a generated stage, each piece in its map colour (the
+/// colour changes at the joins).
+fn preview_elevation_ui(ui: &mut egui::Ui, pv: &Preview, height: f32) {
+    Plot::new("elev")
+        .height(height)
+        .y_axis_label("m")
+        .show(ui, |pu| {
+            for (k, pts) in piece_spans(pv).into_iter().enumerate() {
+                let pts: Vec<[f64; 2]> = pts.iter().map(|(p, s)| [*s, p[2]]).collect();
+                pu.line(
+                    Line::new(PlotPoints::from(pts))
+                        .width(2.5_f32)
+                        .color(section_color(k, true)),
+                );
+            }
+        });
+}
+
+/// Highlight of the selected section (map and elevation).
+const SELECTED: egui::Color32 = egui::Color32::from_rgb(245, 190, 55);
+
+/// Colour of the k-th cut-to-cut section, the same on the map and the elevation.
+fn section_color(k: usize, buildable: bool) -> egui::Color32 {
+    const PALETTE: [egui::Color32; 8] = [
         egui::Color32::from_rgb(68, 136, 205),
         egui::Color32::from_rgb(66, 166, 130),
         egui::Color32::from_rgb(205, 151, 72),
@@ -660,11 +697,32 @@ fn source_map_ui(
         egui::Color32::from_rgb(178, 180, 82),
         egui::Color32::from_rgb(194, 119, 73),
     ];
+    if buildable {
+        PALETTE[k % PALETTE.len()]
+    } else {
+        egui::Color32::from_gray(95)
+    }
+}
+
+fn source_map_ui(
+    ui: &mut egui::Ui,
+    source: &SourcePreview,
+    selected: Option<&str>,
+    height: f32,
+) -> Option<String> {
+    ui.label(format!(
+        "Stock stage: {}  •  {} tile sections  •  {} buildable candidates",
+        source.level,
+        source.sections.len(),
+        source.pieces.len()
+    ));
+    ui.small("Click a section on the map or the height profile to inspect it. Coloured sections are valid standalone candidates; gray sections are shown for reference but are excluded by build filters. Longer candidates are listed below.");
+
     let mut clicked_piece = None;
     Plot::new("stock-map")
         .data_aspect(1.0)
         .legend(Legend::default())
-        .height(440.0)
+        .height(height)
         .show(ui, |pu| {
             let route: Vec<[f64; 2]> = source.route_xyz.iter().map(|p| [p[0], p[1]]).collect();
             if route.len() >= 2 {
@@ -681,22 +739,10 @@ fn source_map_ui(
             for (k, section) in source.sections.iter().enumerate() {
                 let pts: Vec<[f64; 2]> = section.xyz.iter().map(|p| [p[0], p[1]]).collect();
                 if pts.len() >= 2 {
-                    let color = if section.buildable {
-                        palette[k % palette.len()]
-                    } else {
-                        egui::Color32::from_gray(95)
-                    };
-                    let label = if section.buildable {
-                        "selectable road section"
-                    } else {
-                        "not a build candidate"
-                    };
-                    pu.line(
-                        Line::new(PlotPoints::from(pts))
-                            .width(3.0_f32)
-                            .color(color)
-                            .name(label),
-                    );
+                    // no legend entry: a stage has up to ~40 sections (the
+                    // legend would cover the map); each is labelled on the map
+                    let color = section_color(k, section.buildable);
+                    pu.line(Line::new(PlotPoints::from(pts)).width(3.0_f32).color(color));
                     pu.text(
                         egui_plot::Text::new(
                             egui_plot::PlotPoint::new(section.midpoint[0], section.midpoint[1]),
@@ -712,24 +758,19 @@ fn source_map_ui(
             }
 
             if let Some(id) = selected {
-                if let Some(piece) = source
-                    .pieces
-                    .iter()
-                    .find(|p| p.id == id)
-                    .or_else(|| source.sections.iter().find(|p| p.id == id))
-                {
+                if let Some(piece) = find_source_piece(source, id) {
                     let pts: Vec<[f64; 2]> = piece.xyz.iter().map(|p| [p[0], p[1]]).collect();
                     if pts.len() >= 2 {
                         pu.line(
                             Line::new(PlotPoints::from(pts))
                                 .width(5.0_f32)
-                                .color(egui::Color32::from_rgb(245, 190, 55))
+                                .color(SELECTED)
                                 .name(format!("selected {id}")),
                         );
                         pu.points(
                             egui_plot::Points::new(vec![[piece.midpoint[0], piece.midpoint[1]]])
                                 .radius(5.0_f32)
-                                .color(egui::Color32::from_rgb(245, 190, 55))
+                                .color(SELECTED)
                                 .name("selected midpoint"),
                         );
                     }
@@ -813,7 +854,77 @@ fn source_sections_ui(
     picked
 }
 
-fn source_elevation_ui(ui: &mut egui::Ui, source: &SourcePreview, selected: Option<&str>) {
+/// The selected piece (a candidate) or map section with this id.
+fn find_source_piece<'a>(source: &'a SourcePreview, id: &str) -> Option<&'a SourcePiece> {
+    source
+        .pieces
+        .iter()
+        .find(|p| p.id == id)
+        .or_else(|| source.sections.iter().find(|p| p.id == id))
+}
+
+/// Height profile of the stock stage, each section in its map colour; a click
+/// selects the section under the pointer.
+fn source_elevation_ui(
+    ui: &mut egui::Ui,
+    source: &SourcePreview,
+    selected: Option<&str>,
+    height: f32,
+) -> Option<String> {
+    let mut clicked = None;
+    Plot::new("stock-elevation")
+        .height(height)
+        .y_axis_label("m")
+        .show(ui, |pu| {
+            for (k, section) in source.sections.iter().enumerate() {
+                let pts: Vec<[f64; 2]> = section
+                    .xyz
+                    .iter()
+                    .zip(&section.station)
+                    .map(|(p, s)| [*s, p[2]])
+                    .collect();
+                if pts.len() >= 2 {
+                    pu.line(
+                        Line::new(PlotPoints::from(pts))
+                            .width(2.5_f32)
+                            .color(section_color(k, section.buildable)),
+                    );
+                }
+            }
+            if let Some(piece) = selected.and_then(|id| find_source_piece(source, id)) {
+                let pts: Vec<[f64; 2]> = piece
+                    .xyz
+                    .iter()
+                    .zip(&piece.station)
+                    .map(|(p, s)| [*s, p[2]])
+                    .collect();
+                if pts.len() >= 2 {
+                    pu.line(
+                        Line::new(PlotPoints::from(pts))
+                            .width(5.0_f32)
+                            .color(SELECTED),
+                    );
+                }
+            }
+            if pu.response().clicked() {
+                if let Some(at) = pu.pointer_coordinate() {
+                    clicked = source
+                        .sections
+                        .iter()
+                        .find(|p| p.station_start <= at.x && at.x <= p.station_end)
+                        .map(|p| p.id.clone());
+                }
+            }
+        });
+    clicked
+}
+
+/// The old full-size stock elevation (Elevation tab).
+fn source_elevation_tab_ui(
+    ui: &mut egui::Ui,
+    source: &SourcePreview,
+    selected: Option<&str>,
+) -> Option<String> {
     ui.label(format!("Stock-stage elevation: {}", source.level));
     if let (Some(first), Some(last)) = (source.route_xyz.first(), source.route_xyz.last()) {
         let (z_min, z_max) = source
@@ -831,50 +942,12 @@ fn source_elevation_ui(ui: &mut egui::Ui, source: &SourcePreview, selected: Opti
             z_max
         ));
     }
-    Plot::new("stock-elevation").height(420.0).show(ui, |pu| {
-        let route: Vec<[f64; 2]> = source
-            .route_xyz
-            .iter()
-            .zip(&source.route_s)
-            .map(|(p, s)| [*s, p[2]])
-            .collect();
-        if route.len() >= 2 {
-            pu.line(
-                Line::new(PlotPoints::from(route))
-                    .width(1.8_f32)
-                    .color(egui::Color32::from_gray(130))
-                    .name("stock elevation"),
-            );
-        }
-        if let Some(id) = selected {
-            if let Some(piece) = source
-                .pieces
-                .iter()
-                .find(|p| p.id == id)
-                .or_else(|| source.sections.iter().find(|p| p.id == id))
-            {
-                let section: Vec<[f64; 2]> = piece
-                    .xyz
-                    .iter()
-                    .zip(&piece.station)
-                    .map(|(p, s)| [*s, p[2]])
-                    .collect();
-                if section.len() >= 2 {
-                    pu.line(
-                        Line::new(PlotPoints::from(section))
-                            .width(3.5_f32)
-                            .color(egui::Color32::from_rgb(245, 190, 55))
-                            .name(format!("selected {id}")),
-                    );
-                }
-                pu.vline(VLine::new(piece.station_start).name("section start"));
-                pu.vline(VLine::new(piece.station_end).name("section end"));
-            }
-        }
-        for cut in &source.cuts {
-            pu.vline(VLine::new(cut.s).name(format!("cut {}", cut.i)));
-        }
-    });
+    source_elevation_ui(
+        ui,
+        source,
+        selected,
+        (ui.available_height() - 260.0).max(200.0),
+    )
 }
 
 fn load_preview(dir: &Path) -> Result<Preview, String> {
@@ -2025,13 +2098,17 @@ impl eframe::App for App {
                     .is_some_and(|source| source.level == self.prefs.stage) => {
                     let source = self.source_preview.as_ref().unwrap();
                     let mut selected = self.selected_source_piece.clone();
-                    if let Some(id) = source_map_ui(ui, source, selected.as_deref()) {
+                    // map on top, a flat height profile in the same colours below,
+                    // the selection and the list of candidates under them
+                    let elev_h = 130.0;
+                    let map_h = (ui.available_height() - elev_h - 300.0).max(240.0);
+                    if let Some(id) = source_map_ui(ui, source, selected.as_deref(), map_h) {
                         selected = Some(id);
                     }
-                    if let Some(piece) = selected.as_deref().and_then(|id| {
-                        source.pieces.iter().find(|p| p.id == id)
-                            .or_else(|| source.sections.iter().find(|p| p.id == id))
-                    }) {
+                    if let Some(id) = source_elevation_ui(ui, source, selected.as_deref(), elev_h) {
+                        selected = Some(id);
+                    }
+                    if let Some(piece) = selected.as_deref().and_then(|id| find_source_piece(source, id)) {
                         let can_add = source.pieces.iter().any(|p| p.id == piece.id);
                         ui.horizontal_wrapped(|ui| {
                             ui.strong(format!("Selected section {}", piece.id));
@@ -2056,11 +2133,10 @@ impl eframe::App for App {
                     .is_some_and(|source| source.level == self.prefs.stage) => {
                     let source = self.source_preview.as_ref().unwrap();
                     let mut selected = self.selected_source_piece.clone();
-                    source_elevation_ui(ui, source, selected.as_deref());
-                    if let Some(piece) = selected.as_deref().and_then(|id| {
-                        source.pieces.iter().find(|p| p.id == id)
-                            .or_else(|| source.sections.iter().find(|p| p.id == id))
-                    }) {
+                    if let Some(id) = source_elevation_tab_ui(ui, source, selected.as_deref()) {
+                        selected = Some(id);
+                    }
+                    if let Some(piece) = selected.as_deref().and_then(|id| find_source_piece(source, id)) {
                         let status = if piece.buildable { "buildable" } else { "inspect only" };
                         ui.label(format!("Section {} ({status}): {:.0} m; {:.1} → {:.1} m; min/max {:.1}/{:.1} m",
                             piece.id, piece.length, piece.elevation_start, piece.elevation_end,
@@ -2073,25 +2149,21 @@ impl eframe::App for App {
                 }
                 Tab::Map if self.preview.is_some() => {
                     let pv = self.preview.as_ref().unwrap();
+                    // map on top, a flat height profile in the same colours below
+                    let elev_h = 130.0;
+                    let map_h = (ui.available_height() - elev_h - 10.0).max(240.0);
                     Plot::new("map")
                         .data_aspect(1.0)
-                        .legend(Legend::default())
+                        .legend(Legend::default().follow_insertion_order(true))
+                        .height(map_h)
                         .show(ui, |pu| {
-                            let mut bounds = vec![0.0];
-                            bounds.extend(pv.joins.iter().copied());
-                            bounds.push(f64::INFINITY);
-                            for (k, w) in bounds.windows(2).enumerate() {
-                                let pts: Vec<[f64; 2]> = pv
-                                    .pts
-                                    .iter()
-                                    .zip(&pv.s)
-                                    .filter(|(_, s)| **s >= w[0] - 10.0 && **s <= w[1] + 10.0)
-                                    .map(|(p, _)| [p[0], p[1]])
-                                    .collect();
+                            for (k, pts) in piece_spans(pv).into_iter().enumerate() {
+                                let pts: Vec<[f64; 2]> = pts.iter().map(|(p, _)| [p[0], p[1]]).collect();
                                 pu.line(
                                     Line::new(PlotPoints::from(pts))
                                         .width(3.0_f32)
-                                        .name(format!("piece {k}")),
+                                        .color(section_color(k, true))
+                                        .name(piece_label(pv, k)),
                                 );
                             }
                             if let (Some(a), Some(b)) = (pv.pts.first(), pv.pts.last()) {
@@ -2108,21 +2180,11 @@ impl eframe::App for App {
                                 );
                             }
                         });
+                    preview_elevation_ui(ui, pv, elev_h);
                 }
                 Tab::Elevation if self.preview.is_some() => {
                     let pv = self.preview.as_ref().unwrap();
-                    Plot::new("elev").show(ui, |pu| {
-                        let pts: Vec<[f64; 2]> =
-                            pv.pts.iter().zip(&pv.s).map(|(p, s)| [*s, p[2]]).collect();
-                        pu.line(
-                            Line::new(PlotPoints::from(pts))
-                                .width(2.0_f32)
-                                .name("elevation (m)"),
-                        );
-                        for j in &pv.joins {
-                            pu.vline(VLine::new(*j).name("join"));
-                        }
-                    });
+                    preview_elevation_ui(ui, pv, ui.available_height());
                 }
                 Tab::Map | Tab::Elevation if self.show_stock => {
                     ui.centered_and_justified(|ui| {
@@ -2150,7 +2212,7 @@ impl eframe::App for App {
 fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1100.0, 700.0])
+            .with_inner_size([1400.0, 900.0])
             .with_title("ACR Remixer"),
         ..Default::default()
     };
