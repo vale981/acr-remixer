@@ -73,7 +73,7 @@ def _segments(a) -> int:
         meshes, *_ = W.read_baked_raw(Package(fs.read(ws.baked)))
         grid = TileGrid.from_baked(meshes)
         cuts = find_cuts(ws.stage, grid, 2.0)
-        cfg = TileSearchConfig()
+        cfg = TileSearchConfig(min_len=_min_piece(a))
         ranges = make_ranges(ws.stage, grid, cuts, 2.0, cfg.min_len, cfg.max_len)
         return segment_table(ws.stage, ranges, cuts)
 
@@ -123,7 +123,23 @@ def _own_name(a) -> str:
     if getattr(a, "sequence", None):
         return f"SGQ{_seq_tag(a)}{short}"
     uses = getattr(a, "max_uses", 1)
-    return f"SG{a.seed}L{int(a.length)}" + (f"U{uses}" if uses > 1 else "") + short
+    return f"SG{a.seed}L{int(a.length)}" + (f"U{uses}" if uses > 1 else "") + _piece_tag(a, "P") + short
+
+
+def _min_piece(a) -> float:
+    """Shortest piece (m) for the search: --min-piece, else the default (250 m)."""
+    from .tiles import TileSearchConfig
+
+    v = getattr(a, "min_piece", None)
+    return TileSearchConfig.min_len if v is None else max(0.0, float(v))
+
+
+def _piece_tag(a, sep: str) -> str:
+    """Name/folder suffix of a search with a non-default shortest piece ("" for the default)."""
+    from .tiles import TileSearchConfig
+
+    m = _min_piece(a)
+    return "" if m == TileSearchConfig.min_len else f"{sep}{int(round(m))}"
 
 
 def _fnv_tag(text: str) -> str:
@@ -152,7 +168,9 @@ def _out_dir(a) -> str:
     if getattr(a, "sequence", None):
         return os.path.join(a.out, f"{a.level}_seq{_seq_tag(a)}")
     uses = getattr(a, "max_uses", 1)
-    return os.path.join(a.out, f"{a.level}_seed{a.seed}_{int(a.length)}m" + (f"_x{uses}" if uses > 1 else ""))
+    return os.path.join(
+        a.out, f"{a.level}_seed{a.seed}_{int(a.length)}m" + (f"_x{uses}" if uses > 1 else "") + _piece_tag(a, "_p")
+    )
 
 
 def _build_wp(a, paks: str) -> int:
@@ -173,8 +191,14 @@ def _build_wp(a, paks: str) -> int:
     meshes, *_ = W.read_baked_raw(Package(fs.read(ws.baked)))
     grid = TileGrid.from_baked(meshes)
     cuts = find_cuts(st, grid, 2.0)
-    cfg = TileSearchConfig(target_length=a.length, seed=a.seed, max_uses=max(1, getattr(a, "max_uses", 1)))
-    ranges = make_ranges(st, grid, cuts, 2.0, cfg.min_len, cfg.max_len)
+    cfg = TileSearchConfig(
+        target_length=a.length, seed=a.seed, max_uses=max(1, getattr(a, "max_uses", 1)), min_len=_min_piece(a)
+    )
+    # a given sequence or share code may name any piece between two crossings
+    # (shorter ones too: the player chose it, or it was built with a smaller
+    # --min-piece); the search keeps the shortest piece
+    named = bool(getattr(a, "share", None) or getattr(a, "sequence", None))
+    ranges = make_ranges(st, grid, cuts, 2.0, 0.0 if named else cfg.min_len, cfg.max_len)
     print(
         f"{st.name}: {(len(st.points) - 1) * 2 / 1000:.2f} km, {len(grid.tiles)} tiles of {grid.cell:.0f} m, "
         f"{len(cuts) - 2} usable tile crossings, {len(ranges)} candidate pieces"
@@ -208,6 +232,16 @@ def _build_wp(a, paks: str) -> int:
             return 1
         for w in warns:
             print("warning:", w)
+        short = [
+            f"{x}-{y} ({cuts[y].s - cuts[x].s:.0f} m)"
+            for x, y, _ in parse_sequence(a.sequence)
+            if cuts[y].s - cuts[x].s < TileSearchConfig.min_len and cuts[x].kind == cuts[y].kind == "cross"
+        ]
+        if short:
+            print(
+                f"warning: pieces shorter than {TileSearchConfig.min_len:.0f} m are experimental "
+                f"(joins close together): {', '.join(short)}"
+            )
     else:
         best = tile_search(st, ranges, cuts, cfg)
     if best is None:
@@ -297,6 +331,7 @@ def _build_wp(a, paks: str) -> int:
             "length": a.length,
             "seed": a.seed,
             "max_uses": getattr(a, "max_uses", 1),
+            "min_piece": _min_piece(a),
             "sequence": getattr(a, "sequence", None) or "",
             "forest": not getattr(a, "no_forest", False),
             "grass": not getattr(a, "no_grass", False),
@@ -578,6 +613,15 @@ def main(argv=None):
     sg.add_argument("--level", required=True)
     sg.add_argument("--paks")
     sg.add_argument("--json", action="store_true")
+    for p in (b, sg):
+        p.add_argument(
+            "--min-piece",
+            type=float,
+            default=None,
+            metavar="M",
+            help="experimental: shortest piece the search uses, in m (default 250); "
+            "shorter pieces give more joins close together",
+        )
     b.add_argument("--seed", type=int, default=0)
     b.add_argument("--corridor", type=float, default=35.0)
     b.add_argument("--out", default="out")

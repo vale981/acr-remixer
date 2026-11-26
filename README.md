@@ -110,6 +110,7 @@ lists the installed stages, each with its own *Uninstall* button.
 | **Seed** | The "recipe" number: change it for another stage. To share a stage, use its share code (below), not the seed: a new version of ACR Remixer may find a different stage with the same seed. |
 | **Repeats** | How often a piece of road may appear. 1 = every piece at most once (stage length limited to about 90 % of the original); 2–3 = longer stages from repeated pieces. Each repeat costs some memory in the game. |
 | **Sequence** | Optional: the exact pieces to drive instead of letting the seed decide, e.g. `0-1 7-11 2-7r 18-19` (numbers are the tile crossings, `r` = backwards). It starts filled with the last generated stage, so you can tweak that; the list next to it shows which pieces exist. Repeats are allowed as often as you like. |
+| **Experimental → Shortest piece** | The shortest piece of road (between two tile crossings) a stage may be built from; default 250 m. Lower values make the gray sections of the stock map usable, but give more joins close together: more seams, bends and possible steps. |
 | **Batch** | Builds several stages in a row (seed, seed+1, …), so you can compare them on the map. Each one is installed as its own stage. |
 | **Forest / Grass & rocks / Ground grass** | Trees and plants along the road. Untick some if your PC struggles; the stage then looks barer but runs faster. |
 | **Install / Start ACR** | Put the stage into the game automatically, and optionally start the game. |

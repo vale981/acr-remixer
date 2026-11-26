@@ -61,6 +61,18 @@ fn embedded_backend() -> Result<PathBuf, String> {
     Ok(exe)
 }
 
+/// The backend's default shortest piece (TileSearchConfig.min_len).
+const DEFAULT_MIN_PIECE: f32 = 250.0;
+
+/// `--min-piece` arguments for a non-default shortest piece (none for the default).
+fn min_piece_args(p: &Prefs) -> Vec<String> {
+    if p.min_piece_m.round() == DEFAULT_MIN_PIECE {
+        vec![]
+    } else {
+        vec!["--min-piece".into(), format!("{:.0}", p.min_piece_m)]
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct Prefs {
@@ -74,6 +86,8 @@ struct Prefs {
     batch: u32,
     /// how often a piece of road may appear (>1: longer stages from repeats)
     max_uses: u32,
+    /// experimental: shortest piece of road the search uses (m); the backend's default is 250
+    min_piece_m: f32,
     /// build `sequence` (pieces like "0-1 7-11 2-7r 18-19") instead of searching
     use_sequence: bool,
     sequence: String,
@@ -121,6 +135,7 @@ impl Default for Prefs {
             seed: 1,
             batch: 1,
             max_uses: 1,
+            min_piece_m: DEFAULT_MIN_PIECE,
             use_sequence: false,
             sequence: String::new(),
             code: String::new(),
@@ -161,6 +176,9 @@ fn prefs_with_params(base: &Prefs, params: &serde_json::Value) -> Prefs {
         p.seed = v as u32;
     }
     p.max_uses = params["max_uses"].as_u64().unwrap_or(1) as u32;
+    p.min_piece_m = params["min_piece"]
+        .as_f64()
+        .map_or(DEFAULT_MIN_PIECE, |v| v as f32);
     p.sequence = params["sequence"].as_str().unwrap_or("").to_string();
     p.use_sequence = !p.sequence.trim().is_empty();
     p.forest = params["forest"].as_bool().unwrap_or(true);
@@ -264,7 +282,15 @@ fn build_dir(p: &Prefs, seed: u32) -> PathBuf {
     } else {
         String::new()
     };
-    base.join(format!("{}_seed{seed}_{:.0}m{uses}", p.stage, p.length_m))
+    // = backend _out_dir: a non-default shortest piece gives other stages
+    let piece = match min_piece_args(p).last() {
+        Some(m) => format!("_p{m}"),
+        None => String::new(),
+    };
+    base.join(format!(
+        "{}_seed{seed}_{:.0}m{uses}{piece}",
+        p.stage, p.length_m
+    ))
 }
 
 const FW_RULE: &str = "acr-stagegen: block ACR online";
@@ -1228,6 +1254,7 @@ impl App {
             args.push("--max-uses".into());
             args.push(p.max_uses.to_string());
         }
+        args.extend(min_piece_args(&p));
         if !p.forest {
             args.push("--no-forest".into());
         }
@@ -1374,6 +1401,7 @@ impl App {
                     paks,
                     "--json".into(),
                 ]);
+                full.extend(min_piece_args(&p));
                 let (tx, rx) = channel();
                 self.job = Some(Job {
                     rx,
@@ -1818,6 +1846,23 @@ impl eframe::App for App {
                                             repeated pieces (each repeat costs some memory in the game)");
                     });
                 });
+                egui::CollapsingHeader::new("Experimental")
+                    .default_open(p.min_piece_m.round() != DEFAULT_MIN_PIECE)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Shortest piece");
+                            ui.add(egui::DragValue::new(&mut p.min_piece_m).range(50.0..=1000.0)
+                                .speed(10.0).suffix(" m"))
+                                .on_hover_text("Shortest piece of road between two tile crossings that the \
+                                                stage may be built from (default 250 m). Smaller values make \
+                                                the gray sections of the stock map usable, but give more \
+                                                joins close together: more seams, bends and possible steps. \
+                                                Click 'List pieces' again to see the pieces it allows.");
+                            if p.min_piece_m.round() != DEFAULT_MIN_PIECE && ui.small_button("Default").clicked() {
+                                p.min_piece_m = DEFAULT_MIN_PIECE;
+                            }
+                        });
+                    });
                 egui::CollapsingHeader::new("Sequence (choose the pieces yourself)")
                     .default_open(p.use_sequence)
                     .show(ui, |ui| {
@@ -2258,6 +2303,22 @@ mod tests {
             ..Default::default()
         };
         assert!(build_dir(&p, 1).ends_with("WalesS4HafrenSouth_code7EF3A987"));
+    }
+
+    #[test]
+    fn shortest_piece_folder_matches_the_backend() {
+        // the backend (_out_dir) adds _p<m> only for a non-default shortest piece
+        let mut p = Prefs {
+            stage: "WalesS4HafrenSouth".into(),
+            out_dir: "out".into(),
+            length_m: 4500.0,
+            ..Default::default()
+        };
+        assert!(build_dir(&p, 1).ends_with("WalesS4HafrenSouth_seed1_4500m"));
+        p.min_piece_m = 100.0;
+        assert!(build_dir(&p, 1).ends_with("WalesS4HafrenSouth_seed1_4500m_p100"));
+        p.max_uses = 2;
+        assert!(build_dir(&p, 1).ends_with("WalesS4HafrenSouth_seed1_4500m_x2_p100"));
     }
 
     fn lines(input: &[u8]) -> Vec<String> {
