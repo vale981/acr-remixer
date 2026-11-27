@@ -110,6 +110,16 @@ class MeshOut:
     group: int = 8  # collision group key (base-game index lists)
 
 
+def baked_up(V: np.ndarray, tris) -> np.ndarray:
+    """Up component of each triangle's unit normal (cross(b - a, c - a)),
+    baked frame (x, up, y). The game's own collision is wound with this
+    > 0 for ground; going from world (x, y, z) to the baked frame swaps two
+    axes and so flips the winding."""
+    T = np.asarray(V, np.float64)[np.asarray(tris, np.int64).reshape(-1, 3)]
+    n = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+    return n[:, 1] / np.maximum(np.linalg.norm(n, axis=1), 1e-12)
+
+
 def read_baked_raw(pk: Package):
     """Original meshes with raw references + byte ranges for rewriting."""
     e = pk.exports[0]

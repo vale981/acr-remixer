@@ -387,7 +387,48 @@ def _build_wp(a, paks: str) -> int:
         print("  check:", c)
     for f_ in rep.out_files:
         print("  wrote", f_)
+    _print_drive_check(rep.out_files)
     return 0
+
+
+def _print_drive_check(out_files) -> None:
+    """Offline drive check of the container just written (see `check`)."""
+    utoc = next((f for f in out_files if str(f).endswith(".utoc")), None)
+    if utoc is None:
+        return
+    try:
+        for line in _drive_check_lines(os.path.dirname(str(utoc))):
+            print("  check: drive:", line)
+    except Exception as e:  # a report, never a reason to lose the build
+        print(f"  check: DRIVE CHECK FAILED: {type(e).__name__}: {e}")
+
+
+def _drive_check_lines(build_dir: str) -> list[str]:
+    from .build.drivecheck import drive_check, load_build
+
+    col, routes = load_build(build_dir)
+    out = []
+    for name, route in routes.items():
+        rep = drive_check(col, route)
+        out += [f"{name}: {line}" for line in rep.lines]
+    return out
+
+
+def _check(a) -> int:
+    from .build.drivecheck import drive_check, load_build
+
+    col, routes = load_build(a.build_dir)
+    bad = False
+    for name, route in routes.items():
+        rep = drive_check(col, route, step=a.step)
+        bad |= not rep.ok
+        print(f"{name} ({rep.length:.0f} m):")
+        for line in rep.lines:
+            print("  check:", line)
+        if a.surfaces:
+            for s0, s1, mat, actor in rep.surfaces:
+                print(f"    {s0:7.1f}-{s1:7.1f} m  {mat}  {actor}")
+    return 1 if bad else 0
 
 
 def _stop_game() -> None:
@@ -493,6 +534,7 @@ def _build_impl(a) -> int:
         print("  check:", c)
     for f_ in rep.out_files:
         print("  wrote", f_)
+    _print_drive_check(rep.out_files)
     return 0
 
 
@@ -654,12 +696,20 @@ def main(argv=None):
     uni.add_argument("--stage", help="level name of one installed stage, e.g. SG1L4500HafrenSouth")
     lsi = sub.add_parser("installed", help="list installed generated stages")
     lsi.add_argument("--paks")
+    chk = sub.add_parser(
+        "check", help="offline drive check of a built stage: holes, steps and surface under the wheels (no game needed)"
+    )
+    chk.add_argument("build_dir", help="folder written by `build`")
+    chk.add_argument("--step", type=float, default=0.25, help="probe spacing along the route (m)")
+    chk.add_argument("--surfaces", action="store_true", help="also list the surface runs under the route line")
     b.add_argument(
         "--override", action="store_true", help="replace the original stage instead of adding a new one (old behaviour)"
     )
     a = ap.parse_args(argv)
     if a.cmd == "install":
         return _install(a)
+    if a.cmd == "check":
+        return _check(a)
     if a.cmd == "uninstall":
         _stop_game()
         return _uninstall(a)
