@@ -195,6 +195,7 @@ python -m stagegen.cli build --level WalesS4HafrenSouth --length 8000 --max-uses
 python -m stagegen.cli segments --level WalesS4HafrenSouth              # manual candidates for --sequence
 python -m stagegen.cli segments --level WalesS4HafrenSouth --json       # full stock map, cut sections and elevations
 python -m stagegen.cli build --level WalesS4HafrenSouth --sequence "0-1 7-11 7-11r 7-11 18-19" --out out
+python -m stagegen.cli check out/WalesS4HafrenSouth_seed1_4500m         # drive check (also at the end of a build)
 python -m stagegen.cli installed                                        # installed stages
 python -m stagegen.cli uninstall [--stage SG1L4500HafrenSouth]          # one or all
 python -m stagegen.cli build ... --override                             # old mode: replace the original stage
